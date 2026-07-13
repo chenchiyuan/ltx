@@ -37,6 +37,7 @@ x-worker-volumes: &worker_volumes
 
 services:
   control-plane:
+    image: ltx-gpu-control-plane
     build:
       context: ..
       dockerfile: gpu_server/control.Dockerfile
@@ -61,6 +62,30 @@ services:
       interval: 20s
       timeout: 8s
       retries: 5
+
+  dispatcher:
+    image: ltx-gpu-control-plane
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    command: ["python", "-m", "ltx_service.dispatcher"]
+    environment:
+      CONTROL_PLANE_URL: http://control-plane:8000
+      LTX_ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required}
+      DISPATCH_INTERVAL_SECONDS: ${DISPATCH_INTERVAL_SECONDS:-5}
+      DISPATCH_TIMEOUT_SECONDS: ${DISPATCH_TIMEOUT_SECONDS:-10}
+
+  web-frontend:
+    build:
+      context: ..
+      dockerfile: web_frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
 
   worker-0:
     profiles: ["workers"]

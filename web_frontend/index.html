@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LTX Video Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LTX 2.3 / ComfyUI Deploy</p>
+          <h1>Video Generation Console</h1>
+        </div>
+        <div class="health" id="healthState">checking</div>
+      </header>
+
+      <section class="credentials" aria-label="API credentials">
+        <label>
+          API Key
+          <input id="apiKey" type="password" autocomplete="off" placeholder="Bearer key" />
+        </label>
+        <label>
+          Admin Token
+          <input id="adminToken" type="password" autocomplete="off" placeholder="optional for ops" />
+        </label>
+        <button class="secondary" id="saveKeys" type="button">保存</button>
+      </section>
+
+      <section class="workspace">
+        <form class="composer" id="generationForm">
+          <div class="mode-switch" role="tablist" aria-label="Generation mode">
+            <button type="button" class="mode active" data-mode="text_to_video">文生视频</button>
+            <button type="button" class="mode" data-mode="image_to_video">图生视频</button>
+          </div>
+
+          <label>
+            Prompt
+            <textarea id="prompt" rows="7" required placeholder="a clean product shot of a ceramic cup, gentle camera movement"></textarea>
+          </label>
+
+          <label>
+            Negative Prompt
+            <textarea id="negativePrompt" rows="3" placeholder="blur, artifacts, low quality"></textarea>
+          </label>
+
+          <label class="image-input" id="imageInput">
+            Input Image
+            <input id="inputImage" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+
+          <div class="controls">
+            <label>
+              Profile
+              <select id="profile">
+                <option value="fast">fast</option>
+              </select>
+            </label>
+            <label>
+              Duration
+              <input id="duration" type="number" min="1" max="60" value="1" />
+            </label>
+            <label>
+              Aspect
+              <select id="aspectRatio">
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+                <option value="4:3">4:3</option>
+                <option value="3:4">3:4</option>
+              </select>
+            </label>
+            <label>
+              Seed
+              <input id="seed" type="number" placeholder="optional" />
+            </label>
+          </div>
+
+          <button class="primary" id="submitGeneration" type="submit">生成视频</button>
+          <p class="form-status" id="formStatus"></p>
+        </form>
+
+        <section class="preview" aria-label="Generation preview">
+          <div class="preview-toolbar">
+            <div>
+              <p class="eyebrow">Result</p>
+              <h2 id="selectedTaskTitle">未选择任务</h2>
+            </div>
+            <button class="secondary" id="refreshTasks" type="button">刷新</button>
+          </div>
+          <div class="video-stage" id="videoStage">
+            <span>等待生成结果</span>
+          </div>
+          <div class="task-detail" id="taskDetail"></div>
+        </section>
+      </section>
+
+      <section class="lower-grid">
+        <section class="task-list" aria-label="Recent tasks">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Queue</p>
+              <h2>最近任务</h2>
+            </div>
+            <button class="secondary danger" id="cancelTask" type="button">取消当前</button>
+          </div>
+          <div id="taskRows" class="rows"></div>
+        </section>
+
+        <section class="ops" aria-label="Operations">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Ops</p>
+              <h2>运行状态</h2>
+            </div>
+            <button class="secondary" id="loadOps" type="button">加载</button>
+          </div>
+          <div class="ops-actions">
+            <button class="secondary" id="dispatchOnce" type="button">派发一次</button>
+            <button class="secondary" id="loadWorkflows" type="button">工作流</button>
+          </div>
+          <div id="opsOutput" class="ops-output"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
