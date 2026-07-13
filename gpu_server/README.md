@@ -4,6 +4,8 @@
 
 Current scope is Phase 2 GPU execution. It starts the control plane and can start 1-8 GPU worker containers with ComfyUI installed. The worker process registers, heartbeats, exposes an internal assignment endpoint, and can call ComfyUI. Keep `WORKER_STATUS=unhealthy` until the LTX 2.3 models are present and a smoke generation has passed.
 
+The worker image installs ComfyUI, ComfyUI-LTXVideo, and RES4LYF. RES4LYF is required by the first official LTX 2.3 workflow because it uses `ClownSampler_Beta`.
+
 ## Prerequisites
 
 - Ubuntu 22.04
