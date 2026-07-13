@@ -60,7 +60,13 @@ fi
 hf_token="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
 
 echo "Attempting LTX model download from ${LTX_REPO}..."
-if command -v huggingface-cli >/dev/null 2>&1; then
+if command -v hf >/dev/null 2>&1; then
+  hf download "${LTX_REPO}" \
+    --local-dir "${MODEL_DIR}" \
+    --include \
+    "checkpoints/ltx-2.3-22b-dev.safetensors" \
+    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+elif command -v huggingface-cli >/dev/null 2>&1; then
   huggingface-cli download "${LTX_REPO}" \
     --local-dir "${MODEL_DIR}" \
     --include \
@@ -69,7 +75,7 @@ if command -v huggingface-cli >/dev/null 2>&1; then
 else
   docker compose --env-file .env run --rm --no-deps \
     -e HF_TOKEN="${hf_token}" \
-    --entrypoint huggingface-cli \
+    --entrypoint hf \
     worker-0 download "${LTX_REPO}" \
     --local-dir /opt/comfyui/models \
     --include \
