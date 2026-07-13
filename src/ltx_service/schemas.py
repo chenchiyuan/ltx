@@ -63,3 +63,22 @@ class TaskResultResponse(BaseModel):
     task_id: str
     status: str
     outputs: list[ResultAsset]
+
+
+class WorkerRegister(BaseModel):
+    node_name: str = Field(min_length=1)
+    worker_name: str = Field(min_length=1)
+    gpu_index: int = Field(ge=0)
+    worker_slot: int = Field(ge=0)
+    status: str = "idle"
+    queue_depth: int = Field(default=0, ge=0)
+    capabilities: dict = Field(default_factory=dict)
+    metrics_url: str | None = None
+
+
+class WorkerHeartbeat(BaseModel):
+    status: str
+    queue_depth: int = Field(ge=0)
+    capabilities: dict | None = None
+    current_attempt_id: str | None = None
+    metrics_url: str | None = None

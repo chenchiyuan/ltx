@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .assets import create_upload_asset, expires_at, get_owned_asset, upload_asset_content
-from .dependencies import AppState, require_admin_token, require_api_key
+from .dependencies import AppState, require_admin_token, require_api_key, require_worker_token
 from .errors import api_error
 from .executor import ExecutorAdapter
 from .models import ApiKey, Asset, TaskAttempt, VideoTask, WorkflowProfile, WorkflowTemplate, WorkflowVersion
@@ -20,6 +20,8 @@ from .schemas import (
     UploadCreated,
     VideoGenerationCreate,
     VideoGenerationCreated,
+    WorkerHeartbeat,
+    WorkerRegister,
 )
 from .storage import ObjectStorageAdapter
 from .tasks import (
@@ -31,6 +33,7 @@ from .tasks import (
     manual_retry,
     usage_summary,
 )
+from .worker_registry import heartbeat_worker, list_workers, register_worker, serialize_worker
 from .workflows import create_workflow_version, rollback_workflow, set_workflow_status
 
 
@@ -38,6 +41,7 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
     router = APIRouter()
     api_auth = require_api_key(get_session)
     admin_auth = require_admin_token(state.admin_token)
+    worker_auth = require_worker_token(state.worker_token)
 
     @router.get("/health")
     def health(session: Session = Depends(get_session)):
@@ -207,6 +211,25 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
             return {"completed": False}
         return {"completed": True, "task_id": task.id, "status": task.status, "attempt_count": task.attempt_count}
 
+    @router.post("/internal/workers/register")
+    def internal_register_worker(
+        payload: WorkerRegister,
+        _: None = Depends(worker_auth),
+        session: Session = Depends(get_session),
+    ):
+        worker = register_worker(session, payload)
+        return serialize_worker(worker)
+
+    @router.post("/internal/workers/{worker_id}/heartbeat")
+    def internal_worker_heartbeat(
+        worker_id: str,
+        payload: WorkerHeartbeat,
+        _: None = Depends(worker_auth),
+        session: Session = Depends(get_session),
+    ):
+        worker = heartbeat_worker(session, worker_id, payload)
+        return serialize_worker(worker)
+
     @router.get("/admin", response_class=HTMLResponse)
     def admin_home(_: None = Depends(admin_auth), session: Session = Depends(get_session)):
         tasks = session.scalars(select(VideoTask).order_by(VideoTask.created_at.desc())).all()
@@ -305,8 +328,14 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
         return {"id": version.id, "status": version.status}
 
     @router.get("/admin/workers")
-    def admin_workers(_: None = Depends(admin_auth)):
-        return {"phase": "phase-1-control", "executor": executor.health(), "workers": []}
+    def admin_workers(_: None = Depends(admin_auth), session: Session = Depends(get_session)):
+        workers = list_workers(session)
+        phase = "phase-2-worker-registry" if workers else "phase-1-control"
+        return {
+            "phase": phase,
+            "executor": executor.health(),
+            "workers": [serialize_worker(worker) for worker in workers],
+        }
 
     @router.get("/admin/usage")
     def admin_usage(_: None = Depends(admin_auth), session: Session = Depends(get_session)):

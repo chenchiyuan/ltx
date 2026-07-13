@@ -5,8 +5,10 @@ import pytest
 
 API_KEY = "test-api-key"
 ADMIN_TOKEN = "test-admin-token"
+WORKER_TOKEN = "test-worker-token"
 AUTH = {"Authorization": f"Bearer {API_KEY}"}
 ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
+WORKER = {"X-Worker-Token": WORKER_TOKEN}
 
 
 @pytest.fixture()
@@ -17,6 +19,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("LTX_STORAGE_ROOT", str(storage_root))
     monkeypatch.setenv("LTX_BOOTSTRAP_API_KEY", API_KEY)
     monkeypatch.setenv("LTX_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("LTX_WORKER_TOKEN", WORKER_TOKEN)
 
     from ltx_service.app import create_app
     from ltx_service.config import Settings
@@ -26,6 +29,7 @@ def client(tmp_path, monkeypatch):
         storage_root=storage_root,
         bootstrap_api_key=API_KEY,
         admin_token=ADMIN_TOKEN,
+        worker_token=WORKER_TOKEN,
     )
     with TestClient(create_app(settings)) as test_client:
         yield test_client
@@ -165,6 +169,7 @@ def test_minio_backend_required_env_reports_missing_variables(monkeypatch):
     monkeypatch.setenv("LTX_STORAGE_BACKEND", "minio")
     monkeypatch.setenv("LTX_BOOTSTRAP_API_KEY", API_KEY)
     monkeypatch.setenv("LTX_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("LTX_WORKER_TOKEN", WORKER_TOKEN)
 
     settings = Settings.from_env()
     with pytest.raises(RuntimeError) as exc_info:
@@ -197,6 +202,99 @@ def test_asset_upload_roundtrip_and_ownership(client):
         headers={"Authorization": "Bearer other-key"},
     )
     _assert_error(response, 404, "ASSET_NOT_FOUND")
+
+
+def test_worker_registry_registers_heartbeats_and_admin_lists_workers(client):
+    first_worker_id = None
+    for gpu_index in range(8):
+        registered = client.post(
+            "/internal/workers/register",
+            json=_worker_payload(gpu_index),
+            headers=WORKER,
+        )
+        assert registered.status_code == 200
+        payload = registered.json()
+        assert payload["worker_id"].startswith("wrk_")
+        assert payload["status"] == "idle"
+        if gpu_index == 0:
+            first_worker_id = payload["worker_id"]
+
+    duplicate = client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["worker_id"] == first_worker_id
+
+    heartbeat = client.post(
+        f"/internal/workers/{first_worker_id}/heartbeat",
+        json={
+            "status": "busy",
+            "queue_depth": 1,
+            "capabilities": {
+                "modes": ["text_to_video"],
+                "profiles": ["fast"],
+                "ltx_profile": "distilled_single_stage",
+            },
+            "current_attempt_id": "att_test",
+        },
+        headers=WORKER,
+    )
+    assert heartbeat.status_code == 200
+    assert heartbeat.json()["status"] == "busy"
+    assert heartbeat.json()["queue_depth"] == 1
+
+    workers = client.get("/admin/workers", headers=ADMIN)
+    assert workers.status_code == 200
+    payload = workers.json()
+    assert payload["phase"] == "phase-2-worker-registry"
+    assert len(payload["workers"]) == 8
+    by_gpu = {item["gpu_index"]: item for item in payload["workers"]}
+    assert by_gpu[0]["worker_id"] == first_worker_id
+    assert by_gpu[0]["worker_name"] == "gpu-host-01-gpu-0"
+    assert by_gpu[0]["status"] == "busy"
+    assert by_gpu[0]["queue_depth"] == 1
+    assert by_gpu[0]["current_attempt_id"] == "att_test"
+    assert by_gpu[0]["heartbeat_age_seconds"] >= 0
+    assert by_gpu[7]["status"] == "idle"
+
+    restarted = client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER)
+    assert restarted.status_code == 200
+    assert restarted.json()["worker_id"] == first_worker_id
+    assert restarted.json()["status"] == "idle"
+    assert restarted.json()["current_attempt_id"] is None
+
+    missing_token = client.post("/internal/workers/register", json=_worker_payload(9))
+    _assert_error(missing_token, 401, "WORKER_TOKEN_REQUIRED")
+
+    wrong_token = client.post(
+        "/internal/workers/register",
+        json=_worker_payload(9),
+        headers={"X-Worker-Token": "wrong"},
+    )
+    _assert_error(wrong_token, 403, "WORKER_FORBIDDEN")
+
+
+def test_worker_registry_marks_stale_workers_unavailable(client):
+    from datetime import timedelta
+
+    from ltx_service.models import GpuWorker
+    from ltx_service.worker_registry import HEARTBEAT_TIMEOUT_SECONDS, list_available_workers, utc_now
+
+    registered = client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER)
+    assert registered.status_code == 200
+    worker_id = registered.json()["worker_id"]
+
+    with client.app.state.ltx.session_factory() as session:
+        worker = session.get(GpuWorker, worker_id)
+        assert worker is not None
+        worker.last_heartbeat_at = utc_now() - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 1)
+        worker.status = "idle"
+        session.commit()
+
+    workers = client.get("/admin/workers", headers=ADMIN)
+    assert workers.status_code == 200
+    assert workers.json()["workers"][0]["status"] == "offline"
+
+    with client.app.state.ltx.session_factory() as session:
+        assert list_available_workers(session) == []
 
 
 def test_text_to_video_success_result_usage_and_metrics(client):
@@ -448,6 +546,23 @@ def _image_payload(image_asset_id: str | None = None) -> dict:
     if image_asset_id:
         payload["image_asset_id"] = image_asset_id
     return payload
+
+
+def _worker_payload(gpu_index: int) -> dict:
+    return {
+        "node_name": "gpu-host-01",
+        "worker_name": f"gpu-host-01-gpu-{gpu_index}",
+        "gpu_index": gpu_index,
+        "worker_slot": gpu_index,
+        "status": "idle",
+        "queue_depth": 0,
+        "capabilities": {
+            "modes": ["text_to_video", "image_to_video"],
+            "profiles": ["fast"],
+            "ltx_profile": "distilled_single_stage",
+        },
+        "metrics_url": f"http://gpu-host-01:{9100 + gpu_index}/metrics",
+    }
 
 
 def _add_api_key(client: TestClient, raw_key: str, status: str = "active", quota_task_limit: int | None = None) -> None:

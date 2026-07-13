@@ -104,6 +104,35 @@ class TaskAttempt(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class GpuNode(Base):
+    __tablename__ = "gpu_nodes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    node_name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class GpuWorker(Base):
+    __tablename__ = "gpu_workers"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    node_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    worker_name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    gpu_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    worker_slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="starting")
+    capabilities: Mapped[dict] = mapped_column(JSON, nullable=False)
+    queue_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_attempt_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    metrics_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class UsageLedger(Base):
     __tablename__ = "usage_ledger"
 

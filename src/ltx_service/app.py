@@ -24,6 +24,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_factory=session_factory,
         storage=storage,
         admin_token=settings.admin_token,
+        worker_token=settings.worker_token,
         public_base_url=settings.public_base_url,
     )
 

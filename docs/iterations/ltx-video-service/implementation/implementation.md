@@ -54,6 +54,40 @@
   - 未连接真实 MinIO 服务；生产对象存储切换属于 T-302。
   - 未实现 GPU Worker 侧共享挂载；属于 T-204/T-207。
 
+### T-202: Worker Registry 数据模型与内部 API
+
+- **状态**: 已完成
+- **调研结论**:
+  - `api.py` 已有 Admin/internal endpoint 组织方式，可直接增加 Worker internal endpoints。
+  - `dependencies.py` 已有 header token 认证模式，可复用为 `X-Worker-Token`。
+  - `models.py` 使用 SQLAlchemy declarative model 和 `Base.metadata.create_all`，新增 `gpu_nodes`/`gpu_workers` 不需要额外迁移脚本即可在新环境创建。
+  - `tests/test_phase1_api.py` 已有 TestClient fixture 和 Admin header 模式，可直接覆盖 register/heartbeat/Admin 列表。
+- **实现文件**:
+  - `src/ltx_service/config.py`
+  - `src/ltx_service/dependencies.py`
+  - `src/ltx_service/app.py`
+  - `src/ltx_service/models.py`
+  - `src/ltx_service/schemas.py`
+  - `src/ltx_service/worker_registry.py`
+  - `src/ltx_service/api.py`
+  - `tests/test_phase1_api.py`
+  - `docs/iterations/ltx-video-service/implementation/protocol.md`
+  - `docs/iterations/ltx-video-service/implementation/implementation.md`
+- **关键决策**:
+  - 新增 `LTX_WORKER_TOKEN`，Worker 内部 API 使用 `X-Worker-Token`，与 Admin token 分离。
+  - Worker 注册按 `worker_name` 幂等，重复注册返回稳定 `worker_id`。
+  - 心跳超时阈值为 600 秒；超时 Worker 标记 `offline`，并从 `list_available_workers(...)` 结果中排除。
+  - `/admin/workers` 在没有 Worker 时保持 Phase 1 兼容；有 Worker 后进入 `phase-2-worker-registry` 展示。
+- **验收覆盖**:
+  - 8 Worker 注册与 Admin 列表展示。
+  - 重复注册同一 `worker_name` 不创建重复可用 Worker。
+  - heartbeat 更新 status、queue_depth、capabilities、current_attempt_id。
+  - stale Worker 标记 offline 并从可用列表排除。
+  - Worker token 缺失/错误分别返回 401/403。
+- **遗留问题**:
+  - Dispatcher 尚未使用 `list_available_workers(...)` 派发任务；属于 T-203。
+  - `gpu_server/` Worker 进程尚未实现注册调用；属于 T-204/T-207。
+
 ## Task 还原
 
 ### T-001: Phase 1 环境边界与配置基线

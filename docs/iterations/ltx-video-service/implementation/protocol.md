@@ -40,6 +40,21 @@ T-201 禁止实现：
 
 - Worker Registry、GPU Dispatcher、GPU Worker Adapter、ComfyUI/LTX 真实执行、`gpu_server/` 部署目录。
 
+## Phase 2 T-202 范围
+
+T-202 只实现 Worker Registry 数据模型与内部 API：
+
+- 新增 `gpu_nodes` 和 `gpu_workers` 数据模型。
+- `POST /internal/workers/register` 使用 Worker service token 注册 Worker，并按 `worker_name` 幂等返回稳定 `worker_id`。
+- `POST /internal/workers/{worker_id}/heartbeat` 更新 status、queue_depth、capabilities、current_attempt_id、metrics_url 和 last_heartbeat_at。
+- `/admin/workers` 返回 Worker 列表、GPU index、状态、心跳延迟、queue_depth、当前 attempt。
+- 心跳超时 Worker 标记为 `offline`，并从 `list_available_workers(...)` 中排除，供 T-203 Dispatcher 复用。
+- Worker 内部 API 通过 `X-Worker-Token` 认证，缺失返回 401，错误返回 403。
+
+T-202 禁止实现：
+
+- queued task 派发到 GPU Worker、Worker Adapter 调用 ComfyUI、真实 GPU E2E、`gpu_server/` 部署。
+
 ## 技术栈
 
 - Python 3.12
@@ -64,6 +79,7 @@ T-201 禁止实现：
 | Data Models | `src/ltx_service/models.py` |
 | App Composition | `src/ltx_service/app.py` |
 | Runtime Config | `src/ltx_service/config.py` |
+| Worker Registry | `src/ltx_service/worker_registry.py`, `src/ltx_service/models.py`, `src/ltx_service/api.py` |
 
 ## 状态机
 
@@ -109,6 +125,8 @@ Internal/Admin:
 - `GET /admin/usage`
 - `GET /health`
 - `GET /metrics`
+- `POST /internal/workers/register`
+- `POST /internal/workers/{worker_id}/heartbeat`
 
 ## 测试矩阵
 
@@ -134,6 +152,12 @@ Internal/Admin:
 | T-201 storage health failure | local_shared root points to invalid file path | `/health` returns degraded and `storage=failed` | F-008 |
 | T-201 output write failure | storage write fails before task completion | completion fails and task remains non-succeeded | F-008/F-009 |
 | T-201 minio required env | `LTX_REQUIRE_ENV=true`, backend `minio`, missing MinIO vars | RuntimeError lists missing MinIO env vars | F-008 |
+| T-202 worker register | 8 register payloads with valid `X-Worker-Token` | 8 stable worker records and Admin list | F-007/F-012 |
+| T-202 duplicate register | same `worker_name` registered again | same `worker_id`, no duplicate available worker | F-007 |
+| T-202 heartbeat | busy heartbeat with queue/current attempt | Worker status, queue_depth, capabilities, current_attempt updated | F-007/F-012 |
+| T-202 stale heartbeat | last heartbeat older than timeout | Worker marked offline and unavailable | F-007 |
+| T-202 worker token missing | register without `X-Worker-Token` | 401 `WORKER_TOKEN_REQUIRED` | F-007 |
+| T-202 worker token invalid | register with wrong token | 403 `WORKER_FORBIDDEN` | F-007 |
 
 ## 还原检查清单
 
@@ -146,6 +170,10 @@ Internal/Admin:
 - [ ] 输入图和输出视频的 `storage_uri` 由 `ObjectStorageAdapter.uri_for` 生成。
 - [ ] `local_shared` health probe 验证目录可写，不泄露本地路径。
 - [ ] `minio` 配置边界存在，缺少必要配置时快速失败并列出变量名。
+- [ ] Worker Registry 数据模型包含 node、worker、capabilities、queue_depth、last_heartbeat、metrics_url。
+- [ ] Worker register/heartbeat 内部 API 使用 service token。
+- [ ] Admin workers 输出可用于观察 8 Worker 状态。
+- [ ] Stale Worker 不会出现在可用 Worker 查询中。
 - [ ] Workflow 保存 source 和 API JSON。
 - [ ] Usage ledger 与 task completion 同步写入。
 - [ ] Tests 覆盖正常路径和异常路径。

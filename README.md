@@ -25,6 +25,7 @@ export LTX_DATABASE_URL="sqlite:///./.data/ltx.db"
 export LTX_STORAGE_ROOT="./.data/object-storage"
 export LTX_BOOTSTRAP_API_KEY="dev-api-key"
 export LTX_ADMIN_TOKEN="dev-admin-token"
+export LTX_WORKER_TOKEN="dev-worker-token"
 python3 -m uvicorn ltx_service.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -37,4 +38,3 @@ curl -s http://127.0.0.1:8000/health
 ```
 
 更多上下文见 `docs/iterations/ltx-video-service/`。
-

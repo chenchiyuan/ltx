@@ -17,6 +17,7 @@ class AppState:
     session_factory: sessionmaker[Session]
     storage: ObjectStorageAdapter
     admin_token: str
+    worker_token: str
     public_base_url: str
 
 
@@ -52,5 +53,15 @@ def require_admin_token(admin_token: str):
             raise api_error(401, "ADMIN_TOKEN_REQUIRED", "Missing admin token")
         if x_admin_token != admin_token:
             raise api_error(403, "ADMIN_FORBIDDEN", "Invalid admin token")
+
+    return dependency
+
+
+def require_worker_token(worker_token: str):
+    def dependency(x_worker_token: str | None = Header(default=None, alias="X-Worker-Token")) -> None:
+        if not x_worker_token:
+            raise api_error(401, "WORKER_TOKEN_REQUIRED", "Missing worker service token")
+        if x_worker_token != worker_token:
+            raise api_error(403, "WORKER_FORBIDDEN", "Invalid worker service token")
 
     return dependency
