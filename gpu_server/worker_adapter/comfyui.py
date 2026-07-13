@@ -170,12 +170,13 @@ def _collect_widget_input_names(
     inputs: dict[str, Any],
     widget_values: list[Any],
     value_index: int,
+    prefix: list[str] | None = None,
 ) -> tuple[list[str], int]:
     names: list[str] = []
     for section in ("required", "optional"):
         for name, spec in inputs.get(section, {}).items():
             if _is_widget_spec(spec):
-                names.append(name)
+                names.append(_prefixed_input_name(prefix, name))
                 selected_value = _widget_value_at(widget_values, value_index, spec)
                 value_index += 1
                 if _is_dynamic_combo_spec(spec):
@@ -184,6 +185,7 @@ def _collect_widget_input_names(
                         nested_inputs,
                         widget_values,
                         value_index,
+                        _input_prefix(prefix, name),
                     )
                     names.extend(nested_names)
     return names, value_index
@@ -198,6 +200,14 @@ def _is_widget_spec(spec: Any) -> bool:
 
 def _is_dynamic_combo_spec(spec: Any) -> bool:
     return isinstance(spec, list) and bool(spec) and spec[0] == "COMFY_DYNAMICCOMBO_V3"
+
+
+def _input_prefix(prefix: list[str] | None, name: str) -> list[str]:
+    return [*(prefix or []), name]
+
+
+def _prefixed_input_name(prefix: list[str] | None, name: str) -> str:
+    return ".".join(_input_prefix(prefix, name))
 
 
 def _widget_value_at(widget_values: list[Any], value_index: int, spec: Any) -> Any:

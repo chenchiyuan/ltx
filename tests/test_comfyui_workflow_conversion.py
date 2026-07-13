@@ -114,6 +114,6 @@ def test_ui_workflow_conversion_expands_dynamic_combo_widget_inputs() -> None:
     assert converted["2"]["inputs"] == {
         "input": ["1", 0],
         "resize_type": "scale longer dimension",
-        "longer_size": 1536,
+        "resize_type.longer_size": 1536,
         "scale_method": "lanczos",
     }
