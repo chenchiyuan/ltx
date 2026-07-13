@@ -8,6 +8,10 @@ x-worker-build: &worker_build
     COMFYUI_REF: ${COMFYUI_REF:-5697b970173bc0c16a05c30d509d0911f2b84822}
     LTXVIDEO_REPO: ${LTXVIDEO_REPO:-https://github.com/Lightricks/ComfyUI-LTXVideo.git}
     LTXVIDEO_REF: ${LTXVIDEO_REF:-aceeae9635f6d493f2893ba3c411a1c36031788a}
+    PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
+    TORCH_VERSION: ${TORCH_VERSION:-2.8.0+cu128}
+    TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.23.0+cu128}
+    TORCHAUDIO_VERSION: ${TORCHAUDIO_VERSION:-2.8.0+cu128}
 
 x-worker-env: &worker_env
   CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://control-plane:8000}

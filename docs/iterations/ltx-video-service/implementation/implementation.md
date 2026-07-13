@@ -150,6 +150,7 @@
 - **关键决策**:
   - Compose 同时定义 `control-plane` 和 `worker-0` 到 `worker-7`，满足“同一台机器既对外提供接口，也是 GPU 服务器”的测试部署形态。
   - Worker service 使用 Docker device reservation，每个 Worker 固定唯一 `device_ids`，保持单任务单卡的容量单位。
+  - 显式安装 `torch==2.8.0+cu128`、`torchvision==0.23.0+cu128`、`torchaudio==2.8.0+cu128`，避免 ComfyUI 在 2026 当前解析到 CUDA 13 wheel 后与 NVIDIA 575/CUDA 12.9 驱动不兼容。
   - T-204 的 Worker Adapter 只做 register/heartbeat 骨架，默认 `WORKER_STATUS=unhealthy`，避免真实 LTX 执行未完成前被 Dispatcher 派发任务。
   - `deploy.sh` 在启动 Worker 前执行 `docker run --rm --gpus`，如果 NVIDIA Container Toolkit 未配置会快速失败。
   - `download_models.sh` 当前只创建模型目录并输出 T-205 提示，不伪造模型下载清单。

@@ -4,6 +4,10 @@ ARG COMFYUI_REPO=https://github.com/comfyanonymous/ComfyUI.git
 ARG COMFYUI_REF=5697b970173bc0c16a05c30d509d0911f2b84822
 ARG LTXVIDEO_REPO=https://github.com/Lightricks/ComfyUI-LTXVideo.git
 ARG LTXVIDEO_REF=aceeae9635f6d493f2893ba3c411a1c36031788a
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
+ARG TORCH_VERSION=2.8.0+cu128
+ARG TORCHVISION_VERSION=0.23.0+cu128
+ARG TORCHAUDIO_VERSION=2.8.0+cu128
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -24,6 +28,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel requests
+
+RUN python3 -m pip install --no-cache-dir \
+        --index-url "${PYTORCH_INDEX_URL}" \
+        "torch==${TORCH_VERSION}" \
+        "torchvision==${TORCHVISION_VERSION}" \
+        "torchaudio==${TORCHAUDIO_VERSION}"
 
 RUN git clone "${COMFYUI_REPO}" "${COMFYUI_DIR}" \
     && cd "${COMFYUI_DIR}" \

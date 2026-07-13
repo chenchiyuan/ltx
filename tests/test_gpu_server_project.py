@@ -50,6 +50,7 @@ def test_gpu_dockerfile_pins_upstream_refs() -> None:
 
     assert re.search(r"ARG COMFYUI_REF=[0-9a-f]{40}", dockerfile)
     assert re.search(r"ARG LTXVIDEO_REF=[0-9a-f]{40}", dockerfile)
+    assert "ARG TORCH_VERSION=2.8.0+cu128" in dockerfile
     assert "ComfyUI-LTXVideo" in dockerfile
 
 

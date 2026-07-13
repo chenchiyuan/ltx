@@ -78,7 +78,7 @@ T-204 只实现 `gpu_server/` 部署子项目骨架：
 
 - `gpu_server/README.md` 说明 GPU 服务器前置条件、配置项、部署命令、健康检查和卸载方式。
 - `gpu_server/.env.example` 包含 `CONTROL_PLANE_URL`、`WORKER_COUNT`、`GPU_INDICES`、`MODEL_DIR`、`STORAGE_DIR`、`WORKER_TOKEN`。
-- `gpu_server/Dockerfile` 使用 CUDA 基础镜像，并固定 ComfyUI 与 ComfyUI-LTXVideo 的 git commit。
+- `gpu_server/Dockerfile` 使用 CUDA 基础镜像，并固定 ComfyUI、ComfyUI-LTXVideo 的 git commit 和 PyTorch CUDA 12.8 版本。
 - `gpu_server/control.Dockerfile` 允许同机部署 FastAPI control plane。
 - `gpu_server/docker-compose.yml` 定义 control plane 和 8 个单 GPU Worker service，每个 Worker 固定唯一 `device_ids`。
 - `scripts/deploy.sh` 在部署前检查 `nvidia-smi`、Docker Compose 和 Docker GPU runtime。
