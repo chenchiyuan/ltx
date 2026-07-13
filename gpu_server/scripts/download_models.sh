@@ -63,6 +63,7 @@ fi
 
 hf_token="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
 export HF_TOKEN="${hf_token}"
+export HF_HUB_DISABLE_PROGRESS_BARS="${HF_HUB_DISABLE_PROGRESS_BARS:-1}"
 
 download_file() {
   local repo="$1"
