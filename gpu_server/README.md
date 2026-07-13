@@ -2,7 +2,7 @@
 
 `gpu_server/` is the Phase 2 deployment entrypoint for one GPU host. For the first test environment, the same machine can run both the FastAPI control plane and the GPU worker containers.
 
-Current scope is T-204: deployment skeleton and GPU runtime validation. It starts the control plane and can start 1-8 GPU worker containers with ComfyUI installed. The worker process registers and heartbeats, but defaults to `WORKER_STATUS=unhealthy` until T-205/T-206 add real LTX workflow execution.
+Current scope is Phase 2 GPU execution. It starts the control plane and can start 1-8 GPU worker containers with ComfyUI installed. The worker process registers, heartbeats, exposes an internal assignment endpoint, and can call ComfyUI. Keep `WORKER_STATUS=unhealthy` until the LTX 2.3 models are present and a smoke generation has passed.
 
 ## Prerequisites
 
@@ -27,10 +27,26 @@ Required values:
 - `WORKER_TOKEN`: token used by GPU workers against `/internal/workers/*`
 - `APP_DATA_DIR`: SQLite/control-plane data directory
 - `STORAGE_DIR`: shared input/output asset directory
-- `MODEL_DIR`: ComfyUI/LTX model cache directory
+- `MODEL_DIR`: host-side ComfyUI model cache directory, mounted to `/opt/comfyui/models` in each worker
 - `GPU_INDICES`: comma-separated GPU ids to start, for example `0,1,2,3,4,5,6,7`
+- `WORKER_EXECUTION_BACKEND`: `comfyui` for real generation, `mock` for adapter smoke tests without models
+- `WORKFLOW_PATH`: LTX 2.3 workflow source JSON to convert and submit to ComfyUI
 
-For T-204 keep `WORKER_STATUS=unhealthy`; this prevents the dispatcher from assigning real tasks before the Worker Adapter can execute LTX workflows.
+Keep `WORKER_STATUS=unhealthy` while models are missing. Set it to `idle` only after `scripts/download_models.sh` has verified the required files and a worker can complete a smoke generation.
+
+## Models
+
+```bash
+HF_TOKEN=... ./scripts/download_models.sh
+```
+
+The script verifies the model files referenced by the first LTX 2.3 distilled workflow:
+
+- `checkpoints/ltx-2.3-22b-dev.safetensors`
+- `loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors`
+- `text_encoders/comfy_gemma_3_12B_it.safetensors`
+
+Gemma may require Hugging Face authentication and license acceptance. If automatic download cannot fetch it, place the file manually at the expected path and rerun the script.
 
 ## Deploy
 
@@ -56,13 +72,17 @@ Expected control-plane health:
 {"status":"ok", "...":"..."}
 ```
 
-Expected Worker state during T-204:
+Expected Worker state before models are ready:
 
 - containers are running
 - each worker can see its assigned GPU
 - `/admin/workers` shows registered workers as `unhealthy`
 
-Workers are intentionally not `idle` yet. T-206 will change the adapter to execute ComfyUI prompts and report real success/failure events.
+Expected Worker state after models are ready and `WORKER_STATUS=idle`:
+
+- `/admin/workers` shows idle workers with `assign_url`
+- dispatching a task posts to the worker's internal `/worker/attempts`
+- completed attempts call back to `/internal/attempts/{attempt_id}/events`
 
 ## Uninstall
 

@@ -89,6 +89,37 @@ T-204 禁止实现：
 
 - LTX 2.3 真实 Workflow API JSON、模型下载清单、ComfyUI `/prompt` 调用、attempt event 回调、真实视频生成。
 
+## Phase 2 T-205 范围
+
+T-205 只实现 LTX 2.3 distilled single-stage workflow 与模型缓存边界：
+
+- `gpu_server/scripts/download_models.sh` 必须校验 workflow 使用的 checkpoint、LoRA 和 Gemma text encoder 文件是否存在。
+- Worker 模型挂载路径必须对齐 ComfyUI 默认模型目录 `/opt/comfyui/models`。
+- 首个 workflow 使用官方 ComfyUI-LTXVideo `2.3/LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json`。
+- Worker 必须能把官方 ComfyUI save-format workflow 转成 `/prompt` 可提交的 API Format。
+- 模型缺失时必须保持 Worker 非 idle，并在脚本输出缺失清单。
+
+T-205 禁止实现：
+
+- two-stage/upscale profile、自由 workflow 编辑、多 workflow 自动选择。
+
+## Phase 2 T-206 范围
+
+T-206 只实现 GPU Worker Adapter 到 ComfyUI API 的执行边界：
+
+- Worker 注册 capabilities 时带 `assign_url`，control plane 派发 attempt 时同步 POST 到该地址。
+- assignment payload 必须包含 attempt_id、task_id、mode、profile、workflow_version_id、request_params、input_asset 和 output storage URI。
+- Worker Adapter 暴露内部 `/worker/attempts`，接收 attempt 后异步执行，不能阻塞 Dispatcher。
+- Worker Adapter 调用 ComfyUI `/prompt`，轮询 `/history/{prompt_id}`，通过 `/view` 读取输出视频。
+- Worker 将输出视频写入 `ObjectStorageAdapter` 对齐的 `local://` 共享存储 URI。
+- Worker 通过 `POST /internal/attempts/{attempt_id}/events` 回传 progress、succeeded 或 failed。
+- Control plane 处理 succeeded event 时创建 output asset、标记 task/attempt 成功并写 usage ledger。
+- Control plane 处理 failed event 时按 retryable/non-retryable 错误分类进入重试或终态失败。
+
+T-206 禁止实现：
+
+- WebSocket 精细进度、真实 GPU 秒采集、DCGM/Prometheus、8 Worker 并发 E2E 验收。
+
 ## 技术栈
 
 - Python 3.12
@@ -163,6 +194,7 @@ Internal/Admin:
 - `GET /metrics`
 - `POST /internal/workers/register`
 - `POST /internal/workers/{worker_id}/heartbeat`
+- `POST /internal/attempts/{attempt_id}/events`
 
 ## 测试矩阵
 
@@ -206,6 +238,11 @@ Internal/Admin:
 | T-204 pinned Docker refs | `gpu_server/Dockerfile` | ComfyUI and ComfyUI-LTXVideo refs are 40-char commits | F-005 |
 | T-204 8 worker compose | `docker-compose.yml` | worker-0..worker-7 each has unique GPU index/device id | F-007 |
 | T-204 GPU runtime fail-fast | deploy/health scripts | `nvidia-smi` and `docker run --gpus` checks exist | F-005/F-012 |
+| T-205 model mount path | `docker-compose.yml` | host `MODEL_DIR` mounts to `/opt/comfyui/models` | F-005/F-008 |
+| T-205 model cache check | `download_models.sh` | missing checkpoint/LoRA/Gemma files are listed and script fails | F-005/F-008 |
+| T-206 assignment HTTP | worker has `assign_url` | Dispatcher POSTs assignment payload to worker and task enters running | F-005/F-007/F-009 |
+| T-206 worker succeeded event | output URI exists | task/attempt succeeded, output asset created, usage ledger records runtime | F-004/F-008/F-010 |
+| T-206 mock complete guard | gpu-worker task running | `/internal/dispatch/complete-running` still does not complete GPU task | F-009 |
 
 ## 还原检查清单
 
@@ -231,6 +268,10 @@ Internal/Admin:
 - [ ] Compose 中 8 个 Worker 与 GPU index 一一对应。
 - [ ] 部署脚本在 GPU 不可见或 Docker GPU runtime 不可用时快速失败。
 - [ ] T-204 worker skeleton 默认不注册为 idle，避免真实执行能力未完成前吞任务。
+- [ ] T-205 模型目录挂载到 ComfyUI 默认 `/opt/comfyui/models`。
+- [ ] T-205 模型下载脚本能快速暴露缺失 checkpoint/LoRA/Gemma 文件。
+- [ ] T-206 Worker assignment 通过 HTTP 边界进入 Worker Adapter。
+- [ ] T-206 Worker event 回调是 GPU task 进入 succeeded/failed 的唯一完成路径。
 - [ ] Workflow 保存 source 和 API JSON。
 - [ ] Usage ledger 与 task completion 同步写入。
 - [ ] Tests 覆盖正常路径和异常路径。

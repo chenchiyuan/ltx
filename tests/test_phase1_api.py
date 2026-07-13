@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import json
 import pytest
 
 API_KEY = "test-api-key"
@@ -449,6 +450,75 @@ def test_gpu_worker_dispatch_non_retryable_assign_failure_fails_task(tmp_path):
         usage = client.get("/admin/usage", headers=ADMIN).json()
         assert usage[0]["failed_count"] == 1
         assert usage[0]["attempt_count"] == 1
+
+
+def test_gpu_worker_assignment_http_and_completion_event_succeeds(tmp_path, monkeypatch):
+    captured: dict = {}
+
+    class FakeResponse:
+        status = 202
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"status":"accepted"}'
+
+    def fake_urlopen(request, timeout=0):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with _gpu_client(tmp_path) as client:
+        worker_payload = _worker_payload(0)
+        worker_payload["capabilities"]["assign_url"] = "http://worker-0:9000/worker/attempts"
+        worker = client.post("/internal/workers/register", json=worker_payload, headers=WORKER).json()
+
+        created = client.post("/v1/video-generations", json=_text_payload(prompt="real worker path"), headers=AUTH)
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is True
+        attempt_id = dispatched.json()["attempt_id"]
+        assert captured["url"] == "http://worker-0:9000/worker/attempts"
+        assert captured["payload"]["attempt_id"] == attempt_id
+        assert captured["payload"]["task_id"] == task_id
+        output_uri = captured["payload"]["output"]["storage_uri"]
+        assert output_uri.startswith("local://outputs/")
+
+        client.app.state.ltx.storage.write_bytes(output_uri, b"gpu video bytes")
+        completed = client.post(
+            f"/internal/attempts/{attempt_id}/events",
+            json={
+                "status": "succeeded",
+                "output_storage_uri": output_uri,
+                "output_content_type": "video/mp4",
+                "output_size_bytes": len(b"gpu video bytes"),
+                "runtime_seconds": 9,
+            },
+            headers=WORKER,
+        )
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "succeeded"
+
+        result = client.get(f"/v1/video-generations/{task_id}/result", headers=AUTH)
+        assert result.status_code == 200
+        asset_url = result.json()["outputs"][0]["download_url"]
+        asset_id = asset_url.rsplit("/", 2)[-2]
+        content = client.get(f"/v1/assets/{asset_id}/content", headers=AUTH)
+        assert content.content == b"gpu video bytes"
+
+        workers = client.get("/admin/workers", headers=ADMIN).json()["workers"]
+        assert workers[0]["worker_id"] == worker["worker_id"]
+        assert workers[0]["status"] == "idle"
+        assert workers[0]["current_attempt_id"] is None
 
 
 def test_text_to_video_success_result_usage_and_metrics(client):

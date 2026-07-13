@@ -10,6 +10,7 @@ from .errors import api_error
 from .executor import ExecutorAdapter
 from .ids import new_id
 from .models import ApiKey, Asset, TaskAttempt, VideoTask
+from .schemas import WorkerAttemptEvent
 from .storage import ObjectStorageAdapter
 from .usage import record_usage, summarize_usage_by_api_key
 from .worker_registry import list_available_workers
@@ -77,12 +78,14 @@ def create_video_task(
     return task, profile.estimated_gpu_seconds
 
 
-def dispatch_next(session: Session, executor: ExecutorAdapter) -> DispatchOutcome:
+def dispatch_next(session: Session, executor: ExecutorAdapter, storage: ObjectStorageAdapter | None = None) -> DispatchOutcome:
     task = session.scalar(select(VideoTask).where(VideoTask.status == "queued").order_by(VideoTask.created_at.asc()))
     if not task:
         return DispatchOutcome(dispatched=False)
     if executor.executor_type == "gpu-worker":
-        return _dispatch_to_gpu_worker(session, executor, task)
+        if storage is None:
+            raise RuntimeError("gpu-worker dispatch requires storage adapter")
+        return _dispatch_to_gpu_worker(session, executor, storage, task)
     task.status = "running"
     task.progress_stage = "running"
     task.progress_percent = 10
@@ -100,7 +103,12 @@ def dispatch_next(session: Session, executor: ExecutorAdapter) -> DispatchOutcom
     return DispatchOutcome(dispatched=True, attempt=attempt)
 
 
-def _dispatch_to_gpu_worker(session: Session, executor: ExecutorAdapter, task: VideoTask) -> DispatchOutcome:
+def _dispatch_to_gpu_worker(
+    session: Session,
+    executor: ExecutorAdapter,
+    storage: ObjectStorageAdapter,
+    task: VideoTask,
+) -> DispatchOutcome:
     workers = list_available_workers(session, mode=task.mode, profile=task.profile)
     if not workers:
         task.error_code = "CAPACITY_UNAVAILABLE"
@@ -126,7 +134,8 @@ def _dispatch_to_gpu_worker(session: Session, executor: ExecutorAdapter, task: V
     session.add(attempt)
     session.flush()
 
-    assignment = executor.assign(task, attempt, worker)
+    assignment_payload = _build_worker_assignment(session, storage, task, attempt)
+    assignment = executor.assign(task, attempt, worker, assignment_payload)
     if assignment.status == "accepted":
         attempt.status = "running"
         task.status = "running"
@@ -164,6 +173,79 @@ def _dispatch_to_gpu_worker(session: Session, executor: ExecutorAdapter, task: V
         reason=assignment.error_code,
         worker_id=worker.id,
     )
+
+
+def apply_worker_attempt_event(
+    session: Session,
+    storage: ObjectStorageAdapter,
+    attempt_id: str,
+    event: WorkerAttemptEvent,
+) -> VideoTask:
+    attempt = session.get(TaskAttempt, attempt_id)
+    if not attempt:
+        raise api_error(404, "ATTEMPT_NOT_FOUND", "Attempt not found")
+    task = session.get(VideoTask, attempt.task_id)
+    if not task:
+        attempt.status = "abandoned"
+        attempt.finished_at = datetime.now(UTC)
+        session.commit()
+        raise api_error(404, "TASK_NOT_FOUND", "Task not found")
+    if event.status == "progress":
+        task.progress_stage = event.progress_stage or task.progress_stage
+        if event.progress_percent is not None:
+            task.progress_percent = event.progress_percent
+        session.commit()
+        session.refresh(task)
+        return task
+
+    runtime_seconds = event.runtime_seconds or 0
+    attempt.actual_runtime_seconds = runtime_seconds
+    attempt.finished_at = datetime.now(UTC)
+    _release_worker_for_attempt(session, attempt)
+
+    if event.status == "succeeded":
+        if not event.output_storage_uri:
+            raise api_error(422, "WORKER_OUTPUT_REQUIRED", "output_storage_uri is required for succeeded event")
+        if not storage.exists(event.output_storage_uri):
+            raise api_error(422, "WORKER_OUTPUT_MISSING", "Worker output asset does not exist")
+        output = Asset(
+            id=new_id("ast"),
+            api_key_id=task.api_key_id,
+            task_id=task.id,
+            kind="video",
+            storage_uri=event.output_storage_uri,
+            content_type=event.output_content_type,
+            size_bytes=event.output_size_bytes or 0,
+            status="uploaded",
+        )
+        session.add(output)
+        attempt.status = "succeeded"
+        task.status = "succeeded"
+        task.progress_stage = "completed"
+        task.progress_percent = 100
+        task.error_code = None
+        task.completed_at = datetime.now(UTC)
+        record_usage(session, task, "succeeded", runtime_seconds)
+        session.commit()
+        session.refresh(task)
+        return task
+
+    attempt.status = "failed"
+    attempt.error_class = event.error_class or "transient"
+    task.error_code = event.error_code or "WORKER_ATTEMPT_FAILED"
+    if _should_retry(attempt.error_class, task.attempt_count):
+        task.status = "queued"
+        task.progress_stage = "queued"
+        task.progress_percent = 0
+    else:
+        task.status = "failed"
+        task.progress_stage = "failed"
+        task.progress_percent = 100
+        task.completed_at = datetime.now(UTC)
+        record_usage(session, task, "failed", runtime_seconds)
+    session.commit()
+    session.refresh(task)
+    return task
 
 
 def complete_running(session: Session, storage: ObjectStorageAdapter, executor: ExecutorAdapter) -> VideoTask | None:
@@ -271,6 +353,51 @@ def get_task_for_api_key(session: Session, api_key: ApiKey, task_id: str) -> Vid
 
 def _should_retry(error_class: str | None, attempt_count: int) -> bool:
     return error_class in RETRYABLE_ERRORS and attempt_count < MAX_ATTEMPTS
+
+
+def _build_worker_assignment(
+    session: Session,
+    storage: ObjectStorageAdapter,
+    task: VideoTask,
+    attempt: TaskAttempt,
+) -> dict:
+    image_asset = None
+    image_asset_id = task.request_params.get("image_asset_id")
+    if image_asset_id:
+        asset = session.get(Asset, image_asset_id)
+        if asset:
+            image_asset = {
+                "asset_id": asset.id,
+                "storage_uri": asset.storage_uri,
+                "content_type": asset.content_type,
+                "size_bytes": asset.size_bytes,
+            }
+    output_storage_uri = storage.uri_for("outputs", task.id, f"{attempt.id}.mp4")
+    return {
+        "attempt_id": attempt.id,
+        "task_id": task.id,
+        "mode": task.mode,
+        "profile": task.profile,
+        "workflow_version_id": task.workflow_version_id,
+        "request_params": task.request_params,
+        "input_asset": image_asset,
+        "output": {
+            "storage_uri": output_storage_uri,
+            "content_type": "video/mp4",
+        },
+    }
+
+
+def _release_worker_for_attempt(session: Session, attempt: TaskAttempt) -> None:
+    if not attempt.worker_id:
+        return
+    from .models import GpuWorker
+
+    worker = session.get(GpuWorker, attempt.worker_id)
+    if worker:
+        worker.status = "idle"
+        worker.queue_depth = 0
+        worker.current_attempt_id = None
 
 
 def _estimated_seconds(session: Session, workflow_version_id: str, profile: str) -> int:

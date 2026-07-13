@@ -177,6 +177,59 @@
   - Worker Adapter 调用 ComfyUI `/prompt`、轮询 history、回传结果属于 T-206。
   - Worker 注册为 `idle` 并可承接任务属于 T-207/T-209 验收。
 
+### T-205: LTX 2.3 distilled single-stage workflow 与模型缓存
+
+- **状态**: 已完成模型缓存边界和 workflow 转换准备；真实模型下载待 HF token/模型条款满足后验收
+- **调研结论**:
+  - 官方 ComfyUI-LTXVideo 2.3 workflow 位于 `example_workflows/2.3/`，首个单阶段文件为 `LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json`。
+  - 官方 workflow 是 ComfyUI save-format，不是 `/prompt` 可直接提交的 API Format；Worker 必须基于 `/object_info` 转换。
+  - workflow 引用的首批模型文件包括 `ltx-2.3-22b-dev.safetensors`、`ltx-2.3-22b-distilled-lora-384-1.1.safetensors` 和 `comfy_gemma_3_12B_it.safetensors`。
+  - ComfyUI 默认从 `/opt/comfyui/models` 查找模型，原先挂载到 `/models/ltx` 会导致真实执行找不到模型。
+- **实现文件**:
+  - `gpu_server/docker-compose.yml`
+  - `gpu_server/scripts/download_models.sh`
+  - `gpu_server/worker_adapter/comfyui.py`
+  - `gpu_server/.env.example`
+  - `gpu_server/README.md`
+- **关键决策**:
+  - `MODEL_DIR` host 目录挂载到容器内 `/opt/comfyui/models`，直接复用 ComfyUI 默认模型发现路径。
+  - `download_models.sh` 先做缺失清单和 HF token 检查；Gemma gated 模型不伪造自动成功。
+  - Worker 在运行时读取官方 save-format workflow，并用 `/object_info` 转为 API Format，减少手写节点 JSON 漂移。
+- **遗留问题**:
+  - 真实模型文件尚未在远端下载完成；Gemma 可能需要 Hugging Face token 和 license acceptance。
+  - 真实 T2V/I2V 生成质量和耗时需要 T-209 smoke/e2e 实测。
+
+### T-206: GPU Worker Adapter 接入 ComfyUI API
+
+- **状态**: 已完成执行边界、事件回调和本地可测成功路径；真实 ComfyUI 生成待模型到位后验收
+- **调研结论**:
+  - 现有 `GpuWorkerExecutor.assign(...)` 只在控制面内返回 accepted，无法证明 Worker 可观测或可执行。
+  - `Task Service` 已有 attempt 状态机和 usage ledger，适合新增 Worker event 回调作为 GPU task 唯一完成路径。
+  - 单机 compose 网络内 control-plane 可通过 service name 访问 `worker-N:9000`，不需要暴露 worker 端口到公网。
+- **实现文件**:
+  - `src/ltx_service/executor.py`
+  - `src/ltx_service/tasks.py`
+  - `src/ltx_service/api.py`
+  - `src/ltx_service/schemas.py`
+  - `gpu_server/worker_adapter/runtime.py`
+  - `gpu_server/worker_adapter/comfyui.py`
+  - `gpu_server/worker_adapter/storage.py`
+  - `gpu_server/docker-compose.yml`
+  - `tests/test_phase1_api.py`
+- **关键决策**:
+  - Worker capabilities 增加 `assign_url`，Dispatcher 派发 attempt 时同步 POST 到 worker 内部 `/worker/attempts`。
+  - assignment payload 包含输入资产 URI 和预分配输出 URI，Worker 负责写共享存储，Control plane 负责登记资产与 usage。
+  - 新增 `/internal/attempts/{attempt_id}/events`，Worker 通过 service token 回传 progress/succeeded/failed。
+  - Worker Adapter 默认 `WORKER_EXECUTION_BACKEND=comfyui`，同时保留 `mock` 用于无模型环境的 adapter smoke test。
+  - `/internal/dispatch/complete-running` 继续只服务 mock-local，GPU task 不能被控制面同步完成。
+- **验收覆盖**:
+  - `python3 -m pytest` 覆盖 assignment HTTP payload、worker succeeded event、output asset、usage 和 worker 释放。
+  - `python3 -m compileall -q src tests gpu_server/worker_adapter` 通过。
+  - `docker compose --env-file /private/tmp/ltx-gpu.env -f gpu_server/docker-compose.yml config --quiet` 通过。
+- **遗留问题**:
+  - 真实 ComfyUI `/prompt` smoke 尚未执行，依赖模型下载和 Worker 从 `unhealthy` 切换为 `idle`。
+  - WebSocket 细粒度进度和 GPU 指标属于 T-208。
+
 ## Task 还原
 
 ### T-001: Phase 1 环境边界与配置基线

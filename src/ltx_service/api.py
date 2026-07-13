@@ -21,11 +21,13 @@ from .schemas import (
     VideoGenerationCreate,
     VideoGenerationCreated,
     WorkerHeartbeat,
+    WorkerAttemptEvent,
     WorkerRegister,
 )
 from .storage import ObjectStorageAdapter
 from .tasks import (
     cancel_task,
+    apply_worker_attempt_event,
     complete_running,
     create_video_task,
     dispatch_next,
@@ -196,7 +198,7 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
         _: None = Depends(admin_auth),
         session: Session = Depends(get_session),
     ):
-        outcome = dispatch_next(session, executor)
+        outcome = dispatch_next(session, executor, state.storage)
         if not outcome.attempt:
             return {"dispatched": False, "reason": outcome.reason}
         return {
@@ -235,6 +237,16 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
     ):
         worker = heartbeat_worker(session, worker_id, payload)
         return serialize_worker(worker)
+
+    @router.post("/internal/attempts/{attempt_id}/events")
+    def internal_worker_attempt_event(
+        attempt_id: str,
+        payload: WorkerAttemptEvent,
+        _: None = Depends(worker_auth),
+        session: Session = Depends(get_session),
+    ):
+        task = apply_worker_attempt_event(session, state.storage, attempt_id, payload)
+        return _serialize_task(task)
 
     @router.get("/admin", response_class=HTMLResponse)
     def admin_home(_: None = Depends(admin_auth), session: Session = Depends(get_session)):

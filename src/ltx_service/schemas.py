@@ -82,3 +82,15 @@ class WorkerHeartbeat(BaseModel):
     capabilities: dict | None = None
     current_attempt_id: str | None = None
     metrics_url: str | None = None
+
+
+class WorkerAttemptEvent(BaseModel):
+    status: Literal["progress", "succeeded", "failed"]
+    progress_stage: str | None = None
+    progress_percent: int | None = Field(default=None, ge=0, le=100)
+    output_storage_uri: str | None = None
+    output_content_type: str = "video/mp4"
+    output_size_bytes: int | None = Field(default=None, ge=0)
+    error_class: str | None = None
+    error_code: str | None = None
+    runtime_seconds: int | None = Field(default=None, ge=0)

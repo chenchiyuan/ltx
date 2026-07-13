@@ -23,11 +23,14 @@ x-worker-env: &worker_env
   START_COMFYUI: ${START_COMFYUI:-true}
   COMFYUI_HOST: ${COMFYUI_HOST:-127.0.0.1}
   COMFYUI_PORT: ${COMFYUI_PORT:-8188}
-  MODEL_DIR: /models/ltx
+  WORKER_API_HOST: 0.0.0.0
+  WORKER_API_PORT: "9000"
+  WORKER_EXECUTION_BACKEND: ${WORKER_EXECUTION_BACKEND:-comfyui}
+  MODEL_DIR: /opt/comfyui/models
   STORAGE_DIR: /data/ltx-storage
 
 x-worker-volumes: &worker_volumes
-  - ${MODEL_DIR:-/opt/ltx/models}:/models/ltx
+  - ${MODEL_DIR:-/opt/ltx/models}:/opt/comfyui/models
   - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
 
 services:
@@ -77,6 +80,7 @@ services:
       GPU_INDEX: "0"
       WORKER_SLOT: "0"
       WORKER_NAME: ltx-worker-0
+      WORKER_ASSIGN_HOST: worker-0
 
   worker-1:
     profiles: ["workers"]
@@ -98,6 +102,7 @@ services:
       GPU_INDEX: "1"
       WORKER_SLOT: "1"
       WORKER_NAME: ltx-worker-1
+      WORKER_ASSIGN_HOST: worker-1
 
   worker-2:
     profiles: ["workers"]
@@ -119,6 +124,7 @@ services:
       GPU_INDEX: "2"
       WORKER_SLOT: "2"
       WORKER_NAME: ltx-worker-2
+      WORKER_ASSIGN_HOST: worker-2
 
   worker-3:
     profiles: ["workers"]
@@ -140,6 +146,7 @@ services:
       GPU_INDEX: "3"
       WORKER_SLOT: "3"
       WORKER_NAME: ltx-worker-3
+      WORKER_ASSIGN_HOST: worker-3
 
   worker-4:
     profiles: ["workers"]
@@ -161,6 +168,7 @@ services:
       GPU_INDEX: "4"
       WORKER_SLOT: "4"
       WORKER_NAME: ltx-worker-4
+      WORKER_ASSIGN_HOST: worker-4
 
   worker-5:
     profiles: ["workers"]
@@ -182,6 +190,7 @@ services:
       GPU_INDEX: "5"
       WORKER_SLOT: "5"
       WORKER_NAME: ltx-worker-5
+      WORKER_ASSIGN_HOST: worker-5
 
   worker-6:
     profiles: ["workers"]
@@ -203,6 +212,7 @@ services:
       GPU_INDEX: "6"
       WORKER_SLOT: "6"
       WORKER_NAME: ltx-worker-6
+      WORKER_ASSIGN_HOST: worker-6
 
   worker-7:
     profiles: ["workers"]
@@ -224,3 +234,4 @@ services:
       GPU_INDEX: "7"
       WORKER_SLOT: "7"
       WORKER_NAME: ltx-worker-7
+      WORKER_ASSIGN_HOST: worker-7

@@ -5,11 +5,16 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from .comfyui import ComfyUIClient, inject_assignment_parameters, load_workflow_api, run_prompt_and_fetch_video
+from .storage import LocalSharedStorage
 
 
 def env_int(name: str, default: int) -> int:
@@ -30,6 +35,17 @@ def post_json(url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
         return json.loads(response.read().decode())
 
 
+def post_json_without_response(url: str, token: str, payload: dict[str, Any]) -> None:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "X-Worker-Token": token},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        response.read()
+
+
 def get_url(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=5) as response:
@@ -47,6 +63,180 @@ def capabilities(gpu_index: int) -> dict[str, Any]:
         "execution": "comfyui",
         "gpu_index": gpu_index,
     }
+
+
+class WorkerRuntime:
+    def __init__(
+        self,
+        control_plane_url: str,
+        worker_token: str,
+        comfyui_url: str,
+        storage_root: Path,
+        workflow_path: Path,
+    ):
+        self.control_plane_url = control_plane_url.rstrip("/")
+        self.worker_token = worker_token
+        self.comfyui_url = comfyui_url.rstrip("/")
+        self.storage = LocalSharedStorage(storage_root)
+        self.workflow_path = workflow_path
+        self.lock = threading.Lock()
+        self.current_attempt_id: str | None = None
+        self.last_error: str | None = None
+
+    def accept_attempt(self, payload: dict[str, Any]) -> dict[str, str]:
+        attempt_id = str(payload.get("attempt_id") or "")
+        if not attempt_id:
+            return {"status": "failed", "error_class": "invalid_input", "error_code": "ATTEMPT_ID_REQUIRED"}
+        with self.lock:
+            if self.current_attempt_id:
+                return {"status": "failed", "error_class": "transient", "error_code": "WORKER_BUSY"}
+            self.current_attempt_id = attempt_id
+        thread = threading.Thread(target=self._run_attempt, args=(payload,), daemon=True)
+        thread.start()
+        return {"status": "accepted"}
+
+    def heartbeat_status(self, base_status: str) -> tuple[str, int, str | None]:
+        with self.lock:
+            if self.current_attempt_id:
+                return "busy", 1, self.current_attempt_id
+        return base_status, 0, None
+
+    def metrics(self) -> str:
+        status, queue_depth, current_attempt_id = self.heartbeat_status("idle")
+        current = current_attempt_id or ""
+        return (
+            "# HELP ltx_worker_queue_depth Current worker queue depth\n"
+            "# TYPE ltx_worker_queue_depth gauge\n"
+            f"ltx_worker_queue_depth {queue_depth}\n"
+            "# HELP ltx_worker_busy Worker busy state\n"
+            "# TYPE ltx_worker_busy gauge\n"
+            f'ltx_worker_busy{{status="{status}",current_attempt_id="{current}"}} {1 if status == "busy" else 0}\n'
+        )
+
+    def _run_attempt(self, payload: dict[str, Any]) -> None:
+        attempt_id = str(payload["attempt_id"])
+        started_at = time.monotonic()
+        try:
+            self._post_event(attempt_id, {"status": "progress", "progress_stage": "worker_received", "progress_percent": 15})
+            if os.getenv("WORKER_EXECUTION_BACKEND", "comfyui") == "mock":
+                output = f"mock gpu worker output\nattempt_id={attempt_id}\n".encode("utf-8")
+            else:
+                output = self._execute_comfyui(payload, attempt_id)
+            output_uri = payload["output"]["storage_uri"]
+            output_size = self.storage.write_bytes(output_uri, output)
+            self._post_event(
+                attempt_id,
+                {
+                    "status": "succeeded",
+                    "progress_stage": "completed",
+                    "progress_percent": 100,
+                    "output_storage_uri": output_uri,
+                    "output_content_type": payload["output"].get("content_type", "video/mp4"),
+                    "output_size_bytes": output_size,
+                    "runtime_seconds": int(time.monotonic() - started_at),
+                },
+            )
+        except Exception as exc:
+            self.last_error = f"{exc.__class__.__name__}: {exc}"
+            self._post_event(
+                attempt_id,
+                {
+                    "status": "failed",
+                    "progress_stage": "failed",
+                    "progress_percent": 100,
+                    "error_class": _classify_error(exc),
+                    "error_code": _error_code(exc),
+                    "runtime_seconds": int(time.monotonic() - started_at),
+                },
+            )
+        finally:
+            with self.lock:
+                if self.current_attempt_id == attempt_id:
+                    self.current_attempt_id = None
+
+    def _execute_comfyui(self, payload: dict[str, Any], attempt_id: str) -> bytes:
+        client = ComfyUIClient(self.comfyui_url)
+        input_image_name = self._prepare_input_image(payload, attempt_id)
+        prompt = load_workflow_api(self.workflow_path, client)
+        prompt = inject_assignment_parameters(prompt, payload, input_image_name, f"ltx_{attempt_id}")
+        self._post_event(attempt_id, {"status": "progress", "progress_stage": "comfyui_queued", "progress_percent": 25})
+        return run_prompt_and_fetch_video(
+            client,
+            prompt,
+            poll_interval_seconds=env_int("COMFYUI_POLL_INTERVAL_SECONDS", 5),
+            timeout_seconds=env_int("COMFYUI_TIMEOUT_SECONDS", 3600),
+        )
+
+    def _prepare_input_image(self, payload: dict[str, Any], attempt_id: str) -> str | None:
+        input_asset = payload.get("input_asset")
+        if not input_asset:
+            return None
+        source_uri = input_asset["storage_uri"]
+        suffix = _suffix_for_content_type(input_asset.get("content_type") or "")
+        input_dir = Path(os.getenv("COMFYUI_INPUT_DIR", "/opt/comfyui/input"))
+        input_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{attempt_id}_input{suffix}"
+        (input_dir / filename).write_bytes(self.storage.read_bytes(source_uri))
+        return filename
+
+    def _post_event(self, attempt_id: str, payload: dict[str, Any]) -> None:
+        post_json_without_response(
+            f"{self.control_plane_url}/internal/attempts/{attempt_id}/events",
+            self.worker_token,
+            payload,
+        )
+
+
+class WorkerHttpServer(ThreadingHTTPServer):
+    runtime: WorkerRuntime
+
+
+class WorkerRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/health":
+            self._send_json(200, {"status": "ok"})
+            return
+        if self.path == "/metrics":
+            body = self.server.runtime.metrics().encode("utf-8")  # type: ignore[attr-defined]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self._send_json(404, {"error": "not_found"})
+
+    def do_POST(self) -> None:
+        if self.path != "/worker/attempts":
+            self._send_json(404, {"error": "not_found"})
+            return
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+        try:
+            payload = json.loads(body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            self._send_json(400, {"status": "failed", "error_class": "invalid_input", "error_code": "INVALID_JSON"})
+            return
+        result = self.server.runtime.accept_attempt(payload)  # type: ignore[attr-defined]
+        status = 202 if result.get("status") == "accepted" else 409
+        self._send_json(status, result)
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def start_worker_http_server(runtime: WorkerRuntime, host: str, port: int) -> WorkerHttpServer:
+    server = WorkerHttpServer((host, port), WorkerRequestHandler)
+    server.runtime = runtime
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def start_comfyui() -> subprocess.Popen[str] | None:
@@ -77,6 +267,16 @@ def main() -> None:
     not_ready_reason = os.getenv("WORKER_NOT_READY_REASON", "T204_ADAPTER_SKELETON")
     heartbeat_interval = env_int("HEARTBEAT_INTERVAL_SECONDS", 15)
     comfyui_url = f"http://{os.getenv('COMFYUI_HOST', '127.0.0.1')}:{os.getenv('COMFYUI_PORT', '8188')}"
+    worker_api_host = os.getenv("WORKER_API_HOST", "0.0.0.0")
+    worker_api_port = env_int("WORKER_API_PORT", 9000)
+    worker_assign_host = os.getenv("WORKER_ASSIGN_HOST", worker_name)
+    storage_root = Path(os.getenv("STORAGE_DIR", "/data/ltx-storage"))
+    workflow_path = Path(
+        os.getenv(
+            "WORKFLOW_PATH",
+            "/opt/comfyui/custom_nodes/ComfyUI-LTXVideo/example_workflows/2.3/LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json",
+        )
+    )
 
     stop = False
 
@@ -87,9 +287,13 @@ def main() -> None:
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
+    runtime = WorkerRuntime(control_plane_url, worker_token, comfyui_url, storage_root, workflow_path)
+    worker_server = start_worker_http_server(runtime, worker_api_host, worker_api_port)
     comfyui = start_comfyui()
 
     worker_capabilities = capabilities(gpu_index)
+    worker_capabilities["assign_url"] = f"http://{worker_assign_host}:{worker_api_port}/worker/attempts"
+    worker_capabilities["workflow"] = workflow_path.name
     if status != "idle":
         worker_capabilities["not_ready_reason"] = not_ready_reason
 
@@ -116,18 +320,20 @@ def main() -> None:
 
     while not stop:
         comfyui_healthy = get_url(f"{comfyui_url}/system_stats") if comfyui else True
-        heartbeat_status = status
+        heartbeat_status, queue_depth, current_attempt_id = runtime.heartbeat_status(status)
         heartbeat_capabilities = dict(worker_capabilities)
         heartbeat_capabilities["comfyui_healthy"] = comfyui_healthy
-        if status != "idle" and not comfyui_healthy:
+        if runtime.last_error:
+            heartbeat_capabilities["last_error"] = runtime.last_error
+        if heartbeat_status != "idle" and not comfyui_healthy:
             heartbeat_capabilities["not_ready_reason"] = "COMFYUI_NOT_READY"
 
         payload = {
             "status": heartbeat_status,
-            "queue_depth": 0,
+            "queue_depth": queue_depth,
             "capabilities": heartbeat_capabilities,
-            "current_attempt_id": None,
-            "metrics_url": None,
+            "current_attempt_id": current_attempt_id,
+            "metrics_url": f"http://{worker_assign_host}:{worker_api_port}/metrics",
         }
         try:
             post_json(f"{control_plane_url}/internal/workers/{worker_id}/heartbeat", worker_token, payload)
@@ -142,6 +348,33 @@ def main() -> None:
             comfyui.wait(timeout=20)
         except subprocess.TimeoutExpired:
             comfyui.kill()
+    worker_server.shutdown()
+
+
+def _suffix_for_content_type(content_type: str) -> str:
+    if content_type == "image/png":
+        return ".png"
+    if content_type in {"image/jpeg", "image/jpg"}:
+        return ".jpg"
+    return ".image"
+
+
+def _classify_error(exc: Exception) -> str:
+    if isinstance(exc, (TimeoutError, urllib.error.URLError, OSError)):
+        return "transient"
+    if isinstance(exc, ValueError):
+        return "invalid_input"
+    return "comfyui_prompt_failed"
+
+
+def _error_code(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return "COMFYUI_TIMEOUT"
+    if isinstance(exc, urllib.error.URLError):
+        return "COMFYUI_UNAVAILABLE"
+    if isinstance(exc, ValueError):
+        return "REQUEST_INVALID_PARAMETER"
+    return "COMFYUI_PROMPT_FAILED"
 
 
 if __name__ == "__main__":

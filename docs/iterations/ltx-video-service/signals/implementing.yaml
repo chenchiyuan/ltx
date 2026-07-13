@@ -1,7 +1,7 @@
 completion_signal:
   skill: pb-v1-implementing
   status: completed
-  scope: "Phase 2 T-204 gpu_server same-host deployment on 162.62.55.111"
+  scope: "Phase 2 T-205/T-206 LTX model boundary and worker ComfyUI execution adapter"
   artifacts:
     - path: docs/iterations/ltx-video-service/implementation/protocol.md
       type: protocol
@@ -21,13 +21,29 @@ completion_signal:
       type: deployment-script
     - path: gpu_server/scripts/healthcheck.sh
       type: healthcheck-script
+    - path: gpu_server/scripts/download_models.sh
+      type: model-cache-script
     - path: gpu_server/worker_adapter/runtime.py
+      type: code
+    - path: gpu_server/worker_adapter/comfyui.py
+      type: code
+    - path: gpu_server/worker_adapter/storage.py
+      type: code
+    - path: src/ltx_service/executor.py
+      type: code
+    - path: src/ltx_service/tasks.py
+      type: code
+    - path: src/ltx_service/api.py
+      type: code
+    - path: src/ltx_service/schemas.py
       type: code
     - path: tests/test_gpu_server_project.py
       type: tests
+    - path: tests/test_phase1_api.py
+      type: tests
   verification:
     - command: "python3 -m pytest"
-      result: "24 passed"
+      result: "25 passed"
     - command: "python3 -m compileall -q src tests gpu_server/worker_adapter"
       result: passed
     - command: "bash -n gpu_server/scripts/*.sh"
@@ -45,19 +61,24 @@ completion_signal:
     - command: "ssh 162.62.55.111 'cd ~/projects/ltx/gpu_server && docker compose --env-file .env exec -T worker-0 nvidia-smi -L'"
       result: "GPU 0: NVIDIA L20 visible inside worker container"
   issues:
+    - id: REAL_MODEL_FILES_NOT_VERIFIED
+      description: "T-205 已实现模型清单检查和 ComfyUI 模型目录挂载修正，但远端真实模型文件尚未下载验证；Gemma text encoder 可能需要 HF token 和 license acceptance。"
+      severity: MAJOR
+      points_to_upstream: false
+      gate_candidate: G4
     - id: PUBLIC_8000_NOT_REACHING_APP
       description: "服务器内 127.0.0.1:8000/health 正常，0.0.0.0:8000 由 Docker proxy 监听，ufw inactive；但从本机访问 162.62.55.111:8000 未进入 uvicorn access log，需要在云安全组/公网入口放通或改用反向代理。"
       severity: MAJOR
       points_to_upstream: false
       gate_candidate: G4
-    - id: REAL_LTX_EXECUTION_NOT_IMPLEMENTED
-      description: "Worker Adapter 只做注册、心跳和 ComfyUI 健康探测，尚未调用 ComfyUI /prompt 或回传结果；属于 T-206/T-207。"
+    - id: REAL_GPU_SMOKE_NOT_EXECUTED
+      description: "Worker Adapter 已实现 /prompt、history 轮询和 event 回调边界，但真实 LTX 生成 smoke 仍依赖模型文件到位和 WORKER_STATUS=idle。"
       severity: MINOR
       points_to_upstream: false
       gate_candidate: G4
   assumptions:
-    - id: T204_SCOPE_ONLY
-      summary: "本次完成同机部署骨架和 ComfyUI/LTXVideo 节点启动验证，不下载 LTX 2.3 模型、不执行真实视频生成。"
+    - id: T205_T206_SCOPE
+      summary: "本次完成模型缓存边界、workflow save-format 转 API Format、Worker assignment HTTP 和 Worker event 回调，不把未完成模型下载伪装为真实可用。"
     - id: WORKER_SAFETY_STATUS
       summary: "远端 .env 保持 WORKER_STATUS=unhealthy，防止真实 Adapter 未完成前被 Dispatcher 领取任务。"
     - id: SAME_HOST_CONTROL_PLANE
