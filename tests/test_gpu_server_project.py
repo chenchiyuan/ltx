@@ -44,6 +44,10 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     ]:
         assert f"{variable}=" in env_example
 
+    assert "LTX_HF_REPO=Lightricks/LTX-2.3" in env_example
+    assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
+    assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
+
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:
     dockerfile = read("Dockerfile")

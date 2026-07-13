@@ -13,13 +13,17 @@ if [ -f .env ]; then
 fi
 
 MODEL_DIR="${MODEL_DIR:-/opt/ltx/models}"
-LTX_REPO="${LTX_HF_REPO:-Lightricks/LTX-Video}"
-GEMMA_REPO="${GEMMA_HF_REPO:-google/gemma-3-12b-it-qat-q4_0-unquantized}"
+LTX_REPO="${LTX_HF_REPO:-Lightricks/LTX-2.3}"
+GEMMA_REPO="${GEMMA_HF_REPO:-Comfy-Org/ltx-2}"
+LTX_CHECKPOINT_FILE="${LTX_CHECKPOINT_FILE:-ltx-2.3-22b-dev.safetensors}"
+LTX_LORA_FILE="${LTX_LORA_FILE:-ltx-2.3-22b-distilled-lora-384-1.1.safetensors}"
+GEMMA_HF_FILE="${GEMMA_HF_FILE:-split_files/text_encoders/gemma_3_12B_it.safetensors}"
+GEMMA_TARGET_FILE="${GEMMA_TARGET_FILE:-comfy_gemma_3_12B_it.safetensors}"
 
 required_files=(
-  "checkpoints/ltx-2.3-22b-dev.safetensors"
-  "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
-  "text_encoders/comfy_gemma_3_12B_it.safetensors"
+  "checkpoints/${LTX_CHECKPOINT_FILE}"
+  "loras/ltxv/ltx2/${LTX_LORA_FILE}"
+  "text_encoders/${GEMMA_TARGET_FILE}"
 )
 
 mkdir -p \
@@ -59,37 +63,63 @@ fi
 
 hf_token="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
 
-echo "Attempting LTX model download from ${LTX_REPO}..."
-if command -v hf >/dev/null 2>&1; then
-  hf download "${LTX_REPO}" \
-    --local-dir "${MODEL_DIR}" \
-    --include \
-    "checkpoints/ltx-2.3-22b-dev.safetensors" \
-    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
-elif command -v huggingface-cli >/dev/null 2>&1; then
-  huggingface-cli download "${LTX_REPO}" \
-    --local-dir "${MODEL_DIR}" \
-    --include \
-    "checkpoints/ltx-2.3-22b-dev.safetensors" \
-    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
-else
-  docker compose --env-file .env run --rm --no-deps \
-    -e HF_TOKEN="${hf_token}" \
-    --entrypoint hf \
-    worker-0 download "${LTX_REPO}" \
-    --local-dir /opt/comfyui/models \
-    --include \
-    "checkpoints/ltx-2.3-22b-dev.safetensors" \
-    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+download_file() {
+  local repo="$1"
+  local host_dir="$2"
+  local container_dir="$3"
+  local file="$4"
+  local label="$5"
+
+  echo "Downloading ${label} from ${repo}:${file}..."
+  if command -v hf >/dev/null 2>&1; then
+    HF_TOKEN="${hf_token}" hf download "${repo}" "${file}" --local-dir "${host_dir}"
+  elif command -v huggingface-cli >/dev/null 2>&1; then
+    HF_TOKEN="${hf_token}" huggingface-cli download "${repo}" "${file}" --local-dir "${host_dir}"
+  else
+    docker compose --env-file .env run --rm --no-deps \
+      -e HF_TOKEN="${hf_token}" \
+      --entrypoint hf \
+      worker-0 download "${repo}" "${file}" --local-dir "${container_dir}"
+  fi
+}
+
+download_file \
+  "${LTX_REPO}" \
+  "${MODEL_DIR}/checkpoints" \
+  /opt/comfyui/models/checkpoints \
+  "${LTX_CHECKPOINT_FILE}" \
+  "LTX checkpoint"
+
+download_file \
+  "${LTX_REPO}" \
+  "${MODEL_DIR}/loras/ltxv/ltx2" \
+  /opt/comfyui/models/loras/ltxv/ltx2 \
+  "${LTX_LORA_FILE}" \
+  "LTX distilled LoRA"
+
+download_file \
+  "${GEMMA_REPO}" \
+  "${MODEL_DIR}/text_encoders" \
+  /opt/comfyui/models/text_encoders \
+  "${GEMMA_HF_FILE}" \
+  "Gemma text encoder"
+
+gemma_target="${MODEL_DIR}/text_encoders/${GEMMA_TARGET_FILE}"
+if [ ! -s "${gemma_target}" ]; then
+  gemma_source="$(find "${MODEL_DIR}/text_encoders" -type f -name "$(basename "${GEMMA_HF_FILE}")" -print -quit)"
+  if [ -n "${gemma_source}" ]; then
+    gemma_relative="${gemma_source#"${MODEL_DIR}/text_encoders/"}"
+    ln -sfn "${gemma_relative}" "${gemma_target}"
+    echo "Linked ${gemma_target} -> ${gemma_relative}"
+  fi
 fi
 
 cat <<EOF
 
 Gemma text encoder is expected at:
-  ${MODEL_DIR}/text_encoders/comfy_gemma_3_12B_it.safetensors
+  ${gemma_target}
 
-If your Hugging Face account has accepted ${GEMMA_REPO}, download or convert the Gemma checkpoint to that file name.
-Rerun this script afterwards to verify the cache.
+The script downloads ${GEMMA_REPO}:${GEMMA_HF_FILE} and links it to the file name referenced by the current ComfyUI-LTXVideo workflow.
 EOF
 
 for file in "${required_files[@]}"; do

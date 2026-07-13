@@ -40,13 +40,13 @@ Keep `WORKER_STATUS=unhealthy` while models are missing. Set it to `idle` only a
 HF_TOKEN=... ./scripts/download_models.sh
 ```
 
-The script verifies the model files referenced by the first LTX 2.3 distilled workflow:
+The script downloads and verifies the model files referenced by the first LTX 2.3 distilled workflow:
 
 - `checkpoints/ltx-2.3-22b-dev.safetensors`
 - `loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors`
 - `text_encoders/comfy_gemma_3_12B_it.safetensors`
 
-Gemma may require Hugging Face authentication and license acceptance. If automatic download cannot fetch it, place the file manually at the expected path and rerun the script.
+By default, LTX files are fetched from `Lightricks/LTX-2.3`. The Gemma text encoder is fetched from `Comfy-Org/ltx-2` at `split_files/text_encoders/gemma_3_12B_it.safetensors`, then linked to the file name expected by the current ComfyUI-LTXVideo workflow. These files require Hugging Face authentication and accepted model terms.
 
 ## Deploy
 
