@@ -46,15 +46,6 @@ Missing required LTX 2.3 model files:
 EOF
 printf '  - %s\n' "${missing[@]}"
 
-if ! command -v huggingface-cli >/dev/null 2>&1; then
-  cat <<EOF
-
-huggingface-cli is not installed on this host. Install huggingface_hub or place the files manually.
-Gemma may require HF authentication and license acceptance before download.
-EOF
-  exit 1
-fi
-
 if [ -z "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   cat <<EOF
 
@@ -66,12 +57,25 @@ EOF
   exit 1
 fi
 
+hf_token="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
+
 echo "Attempting LTX model download from ${LTX_REPO}..."
-huggingface-cli download "${LTX_REPO}" \
-  --local-dir "${MODEL_DIR}" \
-  --include \
-  "checkpoints/ltx-2.3-22b-dev.safetensors" \
-  "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+if command -v huggingface-cli >/dev/null 2>&1; then
+  huggingface-cli download "${LTX_REPO}" \
+    --local-dir "${MODEL_DIR}" \
+    --include \
+    "checkpoints/ltx-2.3-22b-dev.safetensors" \
+    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+else
+  docker compose --env-file .env run --rm --no-deps \
+    -e HF_TOKEN="${hf_token}" \
+    --entrypoint huggingface-cli \
+    worker-0 download "${LTX_REPO}" \
+    --local-dir /opt/comfyui/models \
+    --include \
+    "checkpoints/ltx-2.3-22b-dev.safetensors" \
+    "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+fi
 
 cat <<EOF
 
