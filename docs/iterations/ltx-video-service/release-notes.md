@@ -12,6 +12,7 @@
 - 版本类型: minor
 - 关联迭代: ltx-video-service
 - 关联分支: main
+- GitHub remote: `git@github.com:chenchiyuan/ltx.git`
 
 ## 2. 变更摘要
 
@@ -43,8 +44,8 @@
 - [x] 本地 git 项目已初始化
 - [x] 代码提交到本地主干 main
 - [x] Tag 已创建: v0.1.0
-- [ ] GitHub remote 待用户提供
-- [ ] 代码待推送到 GitHub
+- [x] GitHub remote 已配置
+- [x] 代码推送到 GitHub
 
 ## 4. 测试摘要
 
@@ -55,8 +56,8 @@
 
 ## 5. 回滚方案
 
-如需回滚本地提交：
+如需回滚：
 
-1. 在 GitHub 推送前，可删除本地 tag 和 commit 后重新提交。
-2. 推送后，使用 `git revert <commit>` 生成回滚提交，不使用 force push。
+1. 使用 `git revert <commit>` 生成回滚提交，不使用 force push。
+2. 如需撤销版本发布，创建新的修正版本 tag，不覆盖已发布 tag。
 3. 运行 `python3 -m pytest` 和 `python3 -m compileall -q src tests` 确认回滚后状态。
