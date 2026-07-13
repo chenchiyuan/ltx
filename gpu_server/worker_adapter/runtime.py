@@ -82,6 +82,7 @@ class WorkerRuntime:
         self.lock = threading.Lock()
         self.current_attempt_id: str | None = None
         self.last_error: str | None = None
+        self.base_status = "unhealthy"
 
     def accept_attempt(self, payload: dict[str, Any]) -> dict[str, str]:
         attempt_id = str(payload.get("attempt_id") or "")
@@ -102,7 +103,7 @@ class WorkerRuntime:
         return base_status, 0, None
 
     def metrics(self) -> str:
-        status, queue_depth, current_attempt_id = self.heartbeat_status("idle")
+        status, queue_depth, current_attempt_id = self.heartbeat_status(self.base_status)
         current = current_attempt_id or ""
         return (
             "# HELP ltx_worker_queue_depth Current worker queue depth\n"
@@ -288,6 +289,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
 
     runtime = WorkerRuntime(control_plane_url, worker_token, comfyui_url, storage_root, workflow_path)
+    runtime.base_status = status
     worker_server = start_worker_http_server(runtime, worker_api_host, worker_api_port)
     comfyui = start_comfyui()
 
