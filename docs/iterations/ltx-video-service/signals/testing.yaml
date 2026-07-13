@@ -1,0 +1,18 @@
+completion_signal:
+  skill: pb-v1-testing
+  status: completed
+  readiness: READY
+  artifacts:
+    - path: docs/iterations/ltx-video-service/test-report.md
+      type: test-report
+    - path: tests/test_phase1_api.py
+      type: tests
+  verification:
+    - command: "python3 -m pytest"
+      result: "9 passed"
+    - command: "python3 -m compileall -q src tests"
+      result: passed
+    - command: "curl -s http://127.0.0.1:8000/health"
+      result: "status=ok"
+  issues: []
+

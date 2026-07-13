@@ -1,0 +1,27 @@
+completion_signal:
+  skill: pb-v1-shipping
+  status: blocked
+  version: v0.1.0
+  artifacts:
+    - path: CHANGELOG.md
+      type: changelog
+    - path: docs/iterations/ltx-video-service/release-notes.md
+      type: release-notes
+  completed_steps:
+    - preflight-check
+    - version-confirmed
+    - changelog-generated
+    - release-notes-generated
+    - local-git-initialized
+    - local-main-commit-created
+    - local-tag-created
+  blocked_on:
+    - id: GITHUB_REMOTE_MISSING
+      description: "GitHub 目标仓库 URL/账号/组织/可见性尚未提供，且当前环境未安装 gh CLI。"
+      severity: BLOCKER
+      points_to_upstream: false
+  verification:
+    - command: "python3 -m pytest"
+      result: "9 passed"
+    - command: "python3 -m compileall -q src tests"
+      result: passed
