@@ -73,6 +73,110 @@ def test_sqlite_database_parent_directory_is_created(tmp_path):
     assert database_path.exists()
 
 
+def test_phase2_local_shared_storage_uses_adapter_uris_without_path_leaks(tmp_path):
+    from ltx_service.app import create_app
+    from ltx_service.config import Settings
+    from ltx_service.models import Asset
+
+    database_url = f"sqlite:///{tmp_path / 'ltx.db'}"
+    storage_root = tmp_path / "shared-storage"
+    settings = Settings(
+        database_url=database_url,
+        storage_backend="local_shared",
+        storage_root=storage_root,
+        bootstrap_api_key=API_KEY,
+        admin_token=ADMIN_TOKEN,
+    )
+
+    with TestClient(create_app(settings)) as test_client:
+        health = test_client.get("/health").json()
+        assert health["status"] == "ok"
+        assert health["storage"] == "ok"
+        assert health["storage_detail"]["type"] == "local_shared"
+        assert str(storage_root) not in str(health)
+
+        asset_id = _upload_image(test_client)
+        with test_client.app.state.ltx.session_factory() as session:
+            input_asset = session.get(Asset, asset_id)
+            assert input_asset is not None
+            assert input_asset.storage_uri.startswith("local://inputs/")
+            assert str(storage_root) not in input_asset.storage_uri
+
+        created = test_client.post("/v1/video-generations", json=_text_payload(prompt="uri boundary"), headers=AUTH)
+        assert created.status_code == 200
+        task_id = created.json()["task_id"]
+        _run_one_attempt(test_client)
+
+        result = test_client.get(f"/v1/video-generations/{task_id}/result", headers=AUTH)
+        assert result.status_code == 200
+        with test_client.app.state.ltx.session_factory() as session:
+            output_asset = session.query(Asset).filter_by(task_id=task_id, kind="video").one()
+            assert output_asset.storage_uri.startswith("local://outputs/")
+            assert str(storage_root) not in output_asset.storage_uri
+
+
+def test_local_shared_storage_health_fails_when_root_is_not_writable(tmp_path):
+    from ltx_service.app import create_app
+    from ltx_service.config import Settings
+    from ltx_service.models import Asset, VideoTask
+
+    blocked_root = tmp_path / "storage-file"
+    blocked_root.write_text("not a directory")
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'ltx.db'}",
+        storage_backend="local_shared",
+        storage_root=blocked_root,
+        bootstrap_api_key=API_KEY,
+        admin_token=ADMIN_TOKEN,
+    )
+
+    with TestClient(create_app(settings), raise_server_exceptions=False) as test_client:
+        health = test_client.get("/health").json()
+        assert health["status"] == "degraded"
+        assert health["storage"] == "failed"
+        assert health["storage_detail"]["type"] == "local_shared"
+        assert "FileExistsError" in health["storage_detail"]["reason"]
+        assert str(blocked_root) not in str(health)
+
+        created = test_client.post("/v1/video-generations", json=_text_payload(prompt="storage fails"), headers=AUTH)
+        assert created.status_code == 200
+        task_id = created.json()["task_id"]
+
+        dispatched = test_client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is True
+
+        completed = test_client.post("/internal/dispatch/complete-running", headers=ADMIN)
+        assert completed.status_code == 500
+
+        with test_client.app.state.ltx.session_factory() as session:
+            task = session.get(VideoTask, task_id)
+            assert task is not None
+            assert task.status == "running"
+            outputs = session.query(Asset).filter_by(task_id=task_id, kind="video").all()
+            assert outputs == []
+
+
+def test_minio_backend_required_env_reports_missing_variables(monkeypatch):
+    from ltx_service.config import Settings
+
+    monkeypatch.setenv("LTX_REQUIRE_ENV", "true")
+    monkeypatch.setenv("LTX_DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("LTX_STORAGE_BACKEND", "minio")
+    monkeypatch.setenv("LTX_BOOTSTRAP_API_KEY", API_KEY)
+    monkeypatch.setenv("LTX_ADMIN_TOKEN", ADMIN_TOKEN)
+
+    settings = Settings.from_env()
+    with pytest.raises(RuntimeError) as exc_info:
+        settings.validate_required()
+
+    message = str(exc_info.value)
+    assert "LTX_MINIO_ENDPOINT" in message
+    assert "LTX_MINIO_ACCESS_KEY" in message
+    assert "LTX_MINIO_SECRET_KEY" in message
+    assert "LTX_MINIO_BUCKET" in message
+
+
 def test_asset_upload_roundtrip_and_ownership(client):
     response = client.post(
         "/v1/assets/uploads",

@@ -13,22 +13,30 @@ completion_signal:
       points_to_upstream: true
       gate_candidate: G2
     - id: DSGN-CAPACITY-001
-      description: GPU 型号、显存分布和 LTX 2.3 实测耗时不进入 Phase 1；Phase 2 接入 GPU 前需要压测。
+      description: GPU 型号、显存分布、磁盘容量和 LTX 2.3 8 Worker 并发耗时仍需在 Phase 2 T-002/T-017 实测。
       severity: MINOR
       points_to_upstream: false
       gate_candidate: G4
     - id: DSGN-ROADMAP-001
-      description: 用户补充要求分阶段完成；Phase 1 已收窄为非 GPU 控制面，GPU 相关进入 Phase 2。
+      description: Phase 2 首版已收敛为单机 8 Worker + gpu_server/ 部署子项目；Kubernetes/GPU Operator 后置到多机或 Phase 2.5。
       severity: MINOR
       points_to_upstream: false
   assumptions:
     - clr_id: CLR-ARCH-024
       summary: 第一阶段对外只提供 API，通过 API Key 做资源隔离。
     - clr_id: CLR-ARCH-016
-      summary: GPU 集群采用 Kubernetes + NVIDIA GPU Operator，但进入 Phase 2。
+      summary: 多机 GPU 集群采用 Kubernetes + NVIDIA GPU Operator；Phase 2 单机首版使用 gpu_server/ 部署入口。
     - clr_id: CLR-ARCH-017
       summary: 每张 GPU 一个 ComfyUI Worker，单任务单卡；Phase 2 实现。
     - clr_id: CLR-ARCH-018
       summary: 模型走节点本地 NVMe/PVC 缓存，输入输出走对象存储抽象。
+    - clr_id: CLR-ARCH-029
+      summary: Phase 2 首版按一台 8 卡 GPU 服务器、默认 8 Worker 验收；Worker 数量必须可配置。
+    - clr_id: CLR-ARCH-030
+      summary: Phase 2 可先用本地共享存储，也可用 MinIO，但必须经 ObjectStorageAdapter。
+    - clr_id: CLR-ARCH-031
+      summary: Phase 2 首个真实 LTX profile 使用 distilled single-stage；two-stage/upscale 后置。
+    - clr_id: CLR-ARCH-032
+      summary: Phase 2 必须新增 gpu_server/，作为 GPU 节点部署子项目。
     - clr_id: ROADMAP-OPEN-SOURCE
-      summary: Phase 1 采用 FastAPI、PostgreSQL、MinIO 和控制面基础指标；GPU/K8s/ComfyUI/LTX/DCGM 进入 Phase 2；Kong、Redis/Temporal、KEDA 后置。
+      summary: Phase 2 首版采用 ComfyUI、ComfyUI-LTXVideo、Docker Compose、NVIDIA Container Toolkit、DCGM/Worker 指标；Kong、Redis/Temporal、KEDA 后置。

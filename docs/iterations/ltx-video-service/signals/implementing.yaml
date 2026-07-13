@@ -1,40 +1,41 @@
 completion_signal:
   skill: pb-v1-implementing
   status: completed
-  scope: "Phase 1 non-GPU control plane"
+  scope: "Phase 2 T-201 runtime config and shared storage boundary"
   artifacts:
     - path: docs/iterations/ltx-video-service/implementation/protocol.md
       type: protocol
     - path: docs/iterations/ltx-video-service/implementation/implementation.md
       type: implementation-record
-    - path: src/ltx_service
+    - path: src/ltx_service/config.py
+      type: code
+    - path: src/ltx_service/storage.py
+      type: code
+    - path: src/ltx_service/app.py
+      type: code
+    - path: src/ltx_service/assets.py
+      type: code
+    - path: src/ltx_service/tasks.py
       type: code
     - path: tests/test_phase1_api.py
       type: tests
-    - path: docs/iterations/ltx-video-service/api_examples.md
-      type: api-examples
-    - path: docs/iterations/ltx-video-service/runbook_phase1.md
-      type: runbook
+    - path: pyproject.toml
+      type: project-config
   verification:
     - command: "python3 -m pytest"
-      result: "9 passed"
+      result: "12 passed"
     - command: "python3 -m compileall -q src tests"
       result: passed
-    - command: "curl -s http://127.0.0.1:8000/health"
-      result: "status=ok"
+    - command: "git diff --check"
+      result: passed
   issues:
-    - id: PLAN_REVIEW_MISSING
-      description: "review-logs/plan_review.md 不存在，前置工程审查文件未执行。"
-      severity: MINOR
-      points_to_upstream: true
-    - id: NO_GIT_REPOSITORY
-      description: "当前目录不是 git repository，无法按任务创建 commit。"
+    - id: MINIO_RUNTIME_NOT_VERIFIED
+      description: "T-201 已建立 MinIO 配置和 adapter 边界，但未连接真实 MinIO 服务；生产对象存储切换属于 T-302。"
       severity: MINOR
       points_to_upstream: false
-    - id: POSTGRES_MINIO_NOT_RUNTIME_VERIFIED
-      description: "本机验证使用 SQLite 与 LocalObjectStorage；PostgreSQL/MinIO 需在目标测试机补充运行态验证。"
-      severity: MINOR
-      points_to_upstream: false
+      gate_candidate: G4
   assumptions:
-    - id: PHASE1_NO_GPU
-      summary: "Phase 1 严格排除 GPU 服务器、ComfyUI/LTX 真实执行、K8s/GPU Operator、DCGM 和 Worker Registry。"
+    - id: T201_SCOPE_ONLY
+      summary: "本次只实现 T-201，不实现 Worker Registry、GPU Dispatcher、GPU Worker Adapter、ComfyUI/LTX 真实执行或 gpu_server/。"
+    - id: LOCAL_SHARED_FIRST
+      summary: "Phase 2 单机首版使用 local_shared 作为可运行后端，MinIO 保持为可选配置边界。"

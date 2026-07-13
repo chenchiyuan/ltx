@@ -1,0 +1,20 @@
+completion_signal:
+  skill: pb-v1-reviewer
+  status: completed
+  artifacts:
+    - path: docs/iterations/ltx-video-service/plan_review/round-1-review.md
+      type: review-report
+    - path: docs/iterations/ltx-video-service/review-logs/plan_review.md
+      type: gate-status
+  issues: []
+  review_result:
+    status: PASS
+    review_type: plan_review
+    round: 1
+    blocker_count: 0
+    major_count: 0
+    minor_count: 0
+    dimension_status: PASS
+    feature_point_total: 20
+    feature_point_pass: 20
+    feature_point_pass_rate: 1.0

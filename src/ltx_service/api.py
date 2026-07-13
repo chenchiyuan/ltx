@@ -105,7 +105,14 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
         api_key: ApiKey = Depends(api_auth),
         session: Session = Depends(get_session),
     ):
-        asset = create_upload_asset(session, api_key, payload.filename, payload.content_type, payload.size_bytes)
+        asset = create_upload_asset(
+            session,
+            state.storage,
+            api_key,
+            payload.filename,
+            payload.content_type,
+            payload.size_bytes,
+        )
         upload_url = str(request.url_for("put_asset_content", asset_id=asset.id))
         return UploadCreated(asset_id=asset.id, upload_url=upload_url, expires_at=expires_at(30))
 

@@ -110,7 +110,7 @@ def complete_running(session: Session, storage: ObjectStorageAdapter, executor: 
             api_key_id=task.api_key_id,
             task_id=task.id,
             kind="video",
-            storage_uri=f"local://outputs/{task.id}/result.mp4",
+            storage_uri=storage.uri_for("outputs", task.id, "result.mp4"),
             content_type=result.output_content_type,
             size_bytes=0,
             status="uploaded",

@@ -1,523 +1,319 @@
-# 工程规划: LTX 2.3 MVP 测试环境
+# 工程规划: LTX 2.3 Phase 2 GPU Execution
 
 生成时间: 2026-07-13  
 状态: DRAFT  
-关联架构: [architecture.md](architecture.md)  
-关联决策: [arch_decisions.md](arch_decisions.md)
+关联架构: `architecture.md`
+关联决策: `arch_decisions.md` D17-D20
+上游澄清: `clarifications/architecture/round-7.md`
 
-> ⚠️ 前置门禁跳过: 当前缺少 `feature-specs/` 和 `review-logs/arch_review.md`。本规划基于 `architecture.md`、`arch_decisions.md` 和用户新增 MVP 目标生成。它可作为第一阶段实施草案，严格的 implementing 合同仍建议后续补齐 feature specs 或完成 review。
+⚠️ 前置门禁跳过: `review-logs/arch_review.md` 不存在，架构设计未经独立 arch review 文件验证。本规划基于已确认的 Phase 2 架构继续推进。
 
 ## 1. 规划概要
 
 ### 1.1 目标
 
-搭建第一阶段 MVP 测试环境：先完成 1 个 web/control 节点上的非 GPU 控制面，不处理 GPU 服务器、GPU Worker、ComfyUI/LTX 真实执行和 GPU 调度逻辑。第一阶段必须跑通 API-only、资产、工作流、任务状态机、重试、计数、内部管理和控制面基础观测。
+在 Phase 1 已完成的非 GPU 控制面上，接入一台 8 卡 GPU 服务器，部署 8 个可配置 GPU Worker，完成真实 LTX 2.3 文生视频/图生视频 E2E。
 
-本 MVP 不是临时版本，而是中期目标架构的第一段可运行切片。实现可以先不接 GPU，但代码边界必须与中期架构一致：`Edge Gateway`、`QueueAdapter/Dispatcher`、`ObjectStorageAdapter`、`ExecutorAdapter` 从第一版就存在。Phase 2 再把 `ExecutorAdapter` 的实现替换为 GPU Worker/ComfyUI。
+### 1.2 范围
 
-### 1.2 MVP 拓扑
+本阶段包含：
 
-Phase 1 推荐拓扑:
+- `gpu_server/` GPU 部署子项目。
+- Docker Compose + NVIDIA Container Toolkit 单机 8 Worker 首版部署。
+- Worker Registry、register/heartbeat、Admin Worker 状态。
+- Dispatcher 派发 queued task 到 idle GPU Worker。
+- GPU Worker Adapter 接入 ComfyUI Server API。
+- LTX 2.3 distilled single-stage T2V/I2V workflow。
+- 本地共享存储或 MinIO，经 `ObjectStorageAdapter` 访问。
+- Worker/GPU 指标、DCGM、Phase 2 真实 E2E。
 
-```mermaid
-flowchart LR
-  Client["API Client"] --> Web["Web/Control Node\nAPI + Admin + Task + DB + Object Store"]
-  Web --> Exec["ExecutorAdapter\nmock/local executor"]
-```
+本阶段不包含：
 
-最小可接受拓扑:
+- 多 GPU 服务器集群。
+- Kubernetes/k3s + NVIDIA GPU Operator 生产化部署。
+- KEDA 自动扩缩容。
+- two-stage/upscale profile。
+- 用户自由编辑 ComfyUI 节点图。
 
-- **Phase 1 推荐**: 1 台 web/control 节点，运行 API、Admin、PostgreSQL、MinIO、Task/Workflow/Asset/Usage 服务。
-- **Phase 1 验收口径**: 不接 GPU；用 mock/local executor 验证任务状态、attempt、重试、计数和 Admin。
-- **Phase 2 推荐**: 增加至少 1 台 GPU 服务节点，接入 K8s/GPU Operator、ComfyUI/LTX Worker 和真实 GPU E2E。
+### 1.3 任务规模
 
-### 1.3 中期目标与 MVP 切片
+- Phase 2 P0 任务: 9 个
+- Phase 2 P1 任务: 0 个
+- P2 记录任务: 4 个
+- Phase 2 P0 总预估: 15-19 人天
+- 单人串行预估: 15-19 工作日
+- 2 人并行预估: 9-12 工作日
 
-| 能力 | Phase 1 实现 | Phase 2 / 中期演进 | Phase 1 必须保持的边界 |
-|---|---|---|---|
-| API 接入 | FastAPI 内置认证、限流、错误码 | Kong 或等价 API Gateway | `/v1/*` API 契约、API Key 语义不变 |
-| 队列/派发 | Postgres Dispatcher | Redis Streams/Temporal + KEDA | `QueueAdapter/Dispatcher` 边界不变 |
-| 对象存储 | MinIO | S3/OSS/自建对象存储 | `ObjectStorageAdapter` 边界不变 |
-| 执行后端 | ExecutorAdapter mock/local | GPU Worker + ComfyUI Server API | task_id、attempt、error_class、usage ledger 不变 |
-| 工作流 | 保存 T2V/I2V 模板元数据与 API Format | 真实 LTX workflow 校验和执行 | source workflow + API Format 双格式不变 |
-| 监控 | 控制面健康、任务指标、错误分布 | GPU/DCGM、Worker 指标、SLO | 指标命名和标签维度稳定 |
-
-当前不允许为了快而绕过这些边界。例如：不能把任务状态只存在内存里，不能让 workflow JSON 散落在脚本中，不能把 mock executor 写死在 Task Service 内部。
-
-### 1.4 范围
-
-- Phase 1 P0 任务: 10 个
-- Phase 1 P1 任务: 2 个
-- Phase 2 任务: 5 个，规划但当前不做
-- Phase 1 总预估: 16 人天
-- Phase 1 单人串行预估: 13-16 工作日
-- Phase 1 2 人并行预估: 7-9 工作日
-
-### 1.5 关键路径
-
-关键路径决定最短交付时间：
+### 1.4 关键路径
 
 ```text
-T-001 -> T-003 -> T-004 -> T-007 -> T-010 -> T-013
+T-201 -> T-202 -> T-203 -> T-204 -> T-205 -> T-206 -> T-207 -> T-208 -> T-209
 ```
 
-可并行任务组：
+并行机会：
 
-- T-003、T-004、T-005 可在 T-001 后并行。
-- T-006 可在 T-003 后独立推进。
-- T-011、T-012 可在核心 API 和任务状态机稳定后并行。
-- T-014、T-015 为 P1，不阻塞 MVP 核心链路。
+- T-202 与 T-204 可在 T-201 后并行。
+- T-205 可与 T-203 并行准备，但真实执行依赖 T-206。
+- T-208 可在 T-202/T-204 完成后先接入基础指标，最终验收依赖 T-207。
 
 ## 2. 任务概览
 
 | Task ID | 名称 | 优先级 | 关联 Feature | 关联组件 | 依赖 | 预估 | 状态 |
-|---|---|---|---|---|---|---:|---|
-| T-001 | Phase 1 环境边界与配置基线 | P0 | F-001, F-008 | 配置/部署 | - | 1d | TODO |
-| T-003 | 数据库与对象存储测试底座 | P0 | F-008, F-010 | PostgreSQL, Object Storage Adapter | T-001 | 1.5d | TODO |
-| T-004 | API 服务骨架与 API Key 认证 | P0 | F-001 | API Gateway | T-001, T-003 | 1.5d | TODO |
-| T-005 | 资产上传与结果访问 API | P0 | F-003, F-008 | Asset Service | T-003, T-004 | 1d | TODO |
-| T-006 | LTX 工作流模板与版本服务 | P0 | F-002, F-003, F-006 | Workflow Service | T-003 | 2d | TODO |
-| T-007 | 任务 API 与状态机 | P0 | F-004, F-009 | Task Service | T-004, T-006 | 2d | TODO |
-| T-010 | 重试、attempt 与用量账本 | P0 | F-009, F-010 | Task Service, Usage Ledger, ExecutorAdapter | T-007 | 1d | TODO |
-| T-011 | 内部管理 Web/Admin | P0 | F-006, F-011 | Internal Admin | T-006, T-007, T-010 | 2d | TODO |
-| T-012 | Phase 1 控制面可观测性与健康检查 | P0 | F-004, F-009, F-010 | Observability | T-007, T-010 | 1d | TODO |
-| T-013 | Phase 1 端到端验收与失败演练 | P0 | F-001, F-003, F-004, F-006, F-009, F-010, F-011 | 控制面全链路 | T-005, T-006, T-010, T-011, T-012 | 2d | TODO |
-| T-014 | API 调用说明与示例脚本 | P1 | F-001, F-002, F-003, F-004 | DX 文档 | T-013 | 1d | TODO |
-| T-015 | Phase 1 部署 Runbook | P1 | F-001, F-008, F-011 | 运维文档 | T-013 | 1d | TODO |
-| T-002 | Phase 2 GPU 节点与 ComfyUI/LTX 基础运行 | P2 | F-005, F-007 | Kubernetes, GPU Worker, ComfyUI | Phase 1 完成 | 2d | TODO |
-| T-008 | Phase 2 Worker Registry 与 GPU 任务派发 | P2 | F-007, F-009, F-012 | Worker Registry, Dispatcher | T-002, T-007 | 1.5d | TODO |
-| T-009 | Phase 2 GPU Worker Adapter 接入 ComfyUI API | P2 | F-002, F-003, F-005, F-008 | GPU Worker Adapter, ComfyUI | T-002, T-005, T-008 | 2d | TODO |
-| T-016 | Phase 2 GPU 可观测性 | P2 | F-012 | DCGM Exporter, Worker Metrics | T-008, T-009 | 1d | TODO |
-| T-017 | Phase 2 真实 GPU E2E 验收 | P2 | F-002, F-003, F-005, F-007, F-012 | GPU 全链路 | T-009, T-016 | 2d | TODO |
-
-P2 当前不做:
-
-| Task ID | 名称 | 原因 |
-|---|---|---|
-| P2-001 | 多 GPU 节点自动扩容 | 第一阶段静态容量池 |
-| P2-002 | 组织/团队权限 | 第一阶段只做 API Key 隔离 |
-| P2-003 | 复杂价格系统 | 第一阶段只记录用量账本 |
-| P2-004 | 外部 Web 用户界面 | 第一阶段对外 API-only |
-| P2-005 | 用户自由编辑 ComfyUI 节点图 | 第一阶段只开放参数化模板 |
-| P2-006 | Kong Gateway | 中期接入层目标；MVP 保持 Edge Gateway 接口但不引入运行件 |
-| P2-007 | Redis/Temporal 队列 | 中期队列目标；MVP 通过 QueueAdapter 使用 Postgres Dispatcher |
-| P2-008 | KEDA 自动扩缩容 | Scale 阶段目标；MVP 常驻 Worker 更适合模型预热 |
+|---|---|---|---|---|---|---|---|
+| T-201 | Phase 2 运行配置与共享存储边界 | P0 | F-008, F-010 | ObjectStorageAdapter, Config | - | 1d | TODO |
+| T-202 | Worker Registry 数据模型与内部 API | P0 | F-007, F-012 | Worker Registry, Admin | T-201 | 2d | TODO |
+| T-203 | GPU Dispatcher 与 ExecutorAdapter 派发改造 | P0 | F-004, F-007, F-009 | Dispatcher, ExecutorAdapter | T-202 | 2d | TODO |
+| T-204 | `gpu_server/` 部署子项目骨架 | P0 | F-005, F-007 | GPU Server 子项目 | T-201 | 2d | TODO |
+| T-205 | LTX 2.3 distilled single-stage workflow 与模型缓存 | P0 | F-002, F-003, F-005 | Workflow Service, ModelCache | T-201, T-204 | 2d | TODO |
+| T-206 | GPU Worker Adapter 接入 ComfyUI API | P0 | F-005, F-008, F-009 | Worker Adapter, ComfyUI | T-202, T-204, T-205 | 2d | TODO |
+| T-207 | 单机 8 Worker 编排与健康检查 | P0 | F-005, F-007, F-012 | gpu_server, Worker Registry | T-203, T-206 | 2d | TODO |
+| T-208 | Worker/GPU 可观测性与 Admin 展示 | P0 | F-010, F-012 | Metrics, DCGM, Admin | T-202, T-207 | 1.5d | TODO |
+| T-209 | Phase 2 真实 GPU E2E 与失败演练 | P0 | F-002, F-003, F-004, F-005, F-007, F-008, F-009, F-010, F-012 | 全链路 | T-207, T-208 | 2.5d | TODO |
+| T-301 | Kubernetes/k3s + GPU Operator 多机部署 | P2 | F-007, F-012 | Kubernetes, GPU Operator | Phase 2 完成 | 3d | TODO |
+| T-302 | MinIO/S3 生产对象存储切换 | P2 | F-008 | ObjectStorageAdapter | Phase 2 完成 | 1.5d | TODO |
+| T-303 | LTX two-stage/upscale profile | P2 | F-002, F-003, F-005 | Workflow Service, Worker Adapter | T-209 | 2d | TODO |
+| T-304 | KEDA/队列驱动自动扩缩容 | P2 | F-007, F-012 | KEDA, QueueAdapter | 多机部署完成 | 3d | TODO |
 
 ## 3. 任务依赖图
 
 ```mermaid
 graph LR
-  T001 --> T003["T-003 DB/对象存储"]
-  T003 --> T004["T-004 API Key/Auth"]
-  T004 --> T005["T-005 资产 API"]
-  T003 --> T006["T-006 工作流服务"]
-  T004 --> T007["T-007 任务状态机"]
-  T006 --> T007
-  T007 --> T010["T-010 重试/用量"]
-  T006 --> T011["T-011 Admin"]
-  T007 --> T011
-  T010 --> T011
-  T007 --> T012["T-012 控制面可观测"]
-  T010 --> T012
-  T005 --> T013["T-013 Phase 1 E2E"]
-  T006 --> T013
-  T010 --> T013
-  T011 --> T013
-  T012 --> T013
-  T013 --> T014["T-014 API 示例"]
-  T013 --> T015["T-015 Runbook"]
-
-  T013 -. "Phase 2" .-> T002["T-002 GPU/ComfyUI"]
-  T002 -. "Phase 2" .-> T008["T-008 Worker Registry/派发"]
-  T007 -. "Phase 2" .-> T008
-  T008 -. "Phase 2" .-> T009["T-009 Worker Adapter"]
-  T005 -. "Phase 2" .-> T009
-  T009 -. "Phase 2" .-> T016["T-016 GPU 可观测"]
-  T016 -. "Phase 2" .-> T017["T-017 GPU E2E"]
+  T201["T-201 配置/存储边界"] --> T202["T-202 Worker Registry/API"]
+  T201 --> T204["T-204 gpu_server 骨架"]
+  T202 --> T203["T-203 Dispatcher 派发"]
+  T204 --> T205["T-205 LTX workflow/模型"]
+  T201 --> T205
+  T202 --> T206["T-206 Worker Adapter"]
+  T204 --> T206
+  T205 --> T206
+  T203 --> T207["T-207 8 Worker 编排"]
+  T206 --> T207
+  T202 --> T208["T-208 指标/Admin"]
+  T207 --> T208
+  T207 --> T209["T-209 GPU E2E"]
+  T208 --> T209
+  T209 -. "后置" .-> T301["T-301 K8s/GPU Operator"]
+  T209 -. "后置" .-> T302["T-302 MinIO/S3"]
+  T209 -. "后置" .-> T303["T-303 two-stage/upscale"]
+  T301 -. "后置" .-> T304["T-304 KEDA"]
 ```
-
-依赖图无循环。
 
 ## 4. 任务详情
 
-### T-001: Phase 1 环境边界与配置基线
-
-- **优先级**: P0
-- **关联 Feature**: F-001, F-008
-- **关联组件**: 配置/部署
-- **目标**: 明确 Phase 1 web/control 节点的网络、域名、密钥、目录和运行参数。
-- **实现方案**:
-  - 方案 A: 1 个 web/control 节点运行 API、Admin、DB、MinIO 和 mock/local executor。推荐，理由: 符合最新 Phase 1 边界，最小化 GPU 外部依赖。
-  - 方案 B: 预留 GPU 节点配置但不启用。当前不推荐，理由: 容易让 Phase 1 验收误入 GPU 范围。
-- **验收标准**:
-  - [ ] 存在一份环境配置清单，包含 web/control 节点地址、对象存储端点、数据库连接、Admin 内部访问地址。
-  - [ ] 配置清单明确 Phase 1 运行件: FastAPI、PostgreSQL、MinIO、控制面 metrics、mock/local executor。
-  - [ ] 配置清单明确 Phase 2 后置运行件: Kubernetes/k3s、NVIDIA GPU Operator、ComfyUI、ComfyUI-LTXVideo、DCGM Exporter、GPU Worker Adapter。
-  - [ ] 配置清单明确中期后置运行件: Kong、Redis/Temporal、KEDA。
-  - [ ] API Key、内部 service token、对象存储凭据以环境变量或 secret 管理，仓库中不出现明文密钥。
-  - [ ] 异常路径: 缺少必需环境变量时服务启动失败，并输出缺失变量名。
-- **依赖**: 无
-- **预估**: 1d
-- **约束来源**: architecture.md § 1.3, § 3.3, § 8.4; arch_decisions.md D02, D07, D11
-
-### T-002: Phase 2 GPU 节点与 ComfyUI/LTX 基础运行
-
-- **优先级**: P2
-- **关联 Feature**: F-005, F-007
-- **关联组件**: Kubernetes, GPU Worker, ComfyUI
-- **目标**: 在至少 1 台 GPU 机器上启动 ComfyUI + LTX 2.3，并验证 ComfyUI Server API 可用。
-- **实现方案**:
-  - 方案 A: 轻量 Kubernetes/k3s + NVIDIA GPU Operator。推荐，理由: 与架构一致，后续增加节点成本低。
-  - 方案 B: Docker Compose + NVIDIA Container Toolkit。只适合快速单机验证，后续迁移到 K8s 会返工。
-- **验收标准**:
-  - [ ] GPU 节点能通过容器访问 NVIDIA GPU。
-  - [ ] ComfyUI 以 headless 服务启动，不要求打开 ComfyUI 原生 UI。
-  - [ ] LTX 2.3 模型文件位于节点本地 NVMe/PVC 缓存路径。
-  - [ ] 调用 ComfyUI `/prompt` 可接受一个最小 API Format workflow。
-  - [ ] 异常路径: GPU 不可见或模型文件缺失时，Worker 不注册为可用。
-- **依赖**: Phase 1 完成
-- **预估**: 2d
-- **约束来源**: architecture.md § 2.2, § 3.2, § 8.1; arch_decisions.md D05, D06, D07, D11
-
-### T-003: 数据库与对象存储测试底座
+### T-201: Phase 2 运行配置与共享存储边界
 
 - **优先级**: P0
 - **关联 Feature**: F-008, F-010
-- **关联组件**: PostgreSQL, Object Storage Adapter
-- **目标**: 提供 MVP 所需业务状态源和输入输出资产存储。
+- **关联组件**: ObjectStorageAdapter, Config
+- **目标**: 让 control plane 和 GPU Worker 在单机 Phase 2 下共享输入输出资产，同时保持后续替换 MinIO/S3 的边界。
 - **实现方案**:
-  - 方案 A: Web/control 节点本地部署 PostgreSQL + MinIO 或兼容对象存储。推荐，理由: 测试环境可控，成本低。
-  - 方案 B: 使用外部托管数据库和对象存储。适合已有基础设施，但依赖网络和权限配置。
+  - 方案 A: 直接强制 MinIO。优点是接近中期对象存储；缺点是单机首版多一个运行件。
+  - 方案 B: 本地共享目录 + `ObjectStorageAdapter` 配置化，MinIO 作为可选后端。推荐，理由: 符合 CLR-ARCH-030，先降低单机 GPU E2E 故障面。
 - **验收标准**:
-  - [ ] 数据库包含 architecture.md § 5 中的核心表: api_keys、workflow_templates、workflow_versions、workflow_profiles、video_tasks、task_attempts、task_assets、gpu_nodes、gpu_workers、usage_ledger。
-  - [ ] MVP 默认对象存储实现为 MinIO。
-  - [ ] 业务代码只依赖 ObjectStorageAdapter，不直接依赖 MinIO SDK 细节。
-  - [ ] 对象存储适配器能写入输入图、输出视频和日志附件。
-  - [ ] task_assets 记录的 storage_uri 可被后端解析并生成临时访问地址。
-  - [ ] 异常路径: 对象存储写入失败时，API 返回明确错误，不创建不可恢复的半成品任务。
-- **依赖**: T-001
+  - [ ] 存在 Phase 2 配置项，可选择 `local_shared` 或 `minio` 存储后端。
+  - [ ] `local_shared` 后端输入图和输出视频都经 `ObjectStorageAdapter` 读写，不在业务代码中硬编码本地路径。
+  - [ ] Worker 和 control plane 对同一 `storage_uri` 能解析到同一资产。
+  - [ ] `storage_uri` 不向外部 API 泄露本地文件系统路径。
+  - [ ] 异常路径: 共享目录不可写时，健康检查返回 storage failed，任务不应被标记为 succeeded。
+- **依赖**: 无
+- **预估**: 1d
+- **约束来源**: architecture.md § 3.4, § 3.5, § 8.3, § 8.4; arch_decisions.md D19; CLR-ARCH-030
+
+### T-202: Worker Registry 数据模型与内部 API
+
+- **优先级**: P0
+- **关联 Feature**: F-007, F-012
+- **关联组件**: Worker Registry, Admin
+- **目标**: 让 GPU Worker 能注册、心跳、上报能力和健康状态，并被 Admin/Dispatcher 查询。
+- **实现方案**:
+  - 方案 A: 只从 Docker/K8s 查询容器状态。缺点是无法表达业务能力、queue_depth、当前 attempt。
+  - 方案 B: Worker 主动 register/heartbeat，数据库保存业务健康状态。推荐，理由: 与 architecture.md § 6.3 和 D17 一致。
+- **验收标准**:
+  - [ ] 数据模型包含 `gpu_nodes` 和 `gpu_workers`，记录 node_name、worker_name、gpu_index、worker_slot、status、capabilities、queue_depth、last_heartbeat_at、metrics_url。
+  - [ ] `POST /internal/workers/register` 返回稳定 `worker_id`，同一 worker_name 重复注册不会创建重复可用 worker。
+  - [ ] `POST /internal/workers/{worker_id}/heartbeat` 能更新 status、queue_depth、capabilities、当前 attempt。
+  - [ ] 超过心跳阈值的 Worker 被标记为 `unhealthy/offline`，Dispatcher 查询不到它。
+  - [ ] `/admin/workers` 能返回 8 个 Worker 的 GPU index、状态、心跳延迟、queue_depth、当前任务。
+  - [ ] 异常路径: service token 缺失或错误时，内部 Worker API 返回 401/403。
+- **依赖**: T-201
+- **预估**: 2d
+- **约束来源**: architecture.md § 3.2, § 6.2, § 6.3, § 8.2, § 8.4; arch_decisions.md D17; CLR-ARCH-029
+
+### T-203: GPU Dispatcher 与 ExecutorAdapter 派发改造
+
+- **优先级**: P0
+- **关联 Feature**: F-004, F-007, F-009
+- **关联组件**: Dispatcher, ExecutorAdapter
+- **目标**: 把 Phase 1 mock/local 执行替换为可配置 GPU Worker 派发，同时保持外部任务 API 和状态机不变。
+- **实现方案**:
+  - 方案 A: Task Service 同步 HTTP 调用 Worker 并等待结果。缺点是长任务阻塞控制面。
+  - 方案 B: Dispatcher 选择 idle Worker，创建 attempt，调用 Worker Adapter assign endpoint，Worker 异步回传 events。推荐，理由: 符合 architecture.md § 7.1 数据流。
+- **验收标准**:
+  - [ ] Executor backend 可配置为 `mock-local` 或 `gpu-worker`。
+  - [ ] `gpu-worker` 模式下，queued task 被派发到 capabilities 匹配 mode/profile 的 idle Worker。
+  - [ ] 派发成功后 task 进入 `running` 或 `dispatching/running`，attempt 记录 worker_id。
+  - [ ] 无可用 Worker 时任务保持 queued，且 metrics/Admin 可见 `CAPACITY_UNAVAILABLE` 或 queued reason。
+  - [ ] Worker assign 失败时 attempt 标记 failed，retryable 错误重新 queued，非 retryable 进入 failed。
+  - [ ] 幂等约束: 同一 task 不会被同时派发给两个 Worker。
+- **依赖**: T-202
+- **预估**: 2d
+- **约束来源**: architecture.md § 3.3, § 6.4, § 7.1, § 7.2, § 8.2; arch_decisions.md D04, D09, D17
+
+### T-204: `gpu_server/` 部署子项目骨架
+
+- **优先级**: P0
+- **关联 Feature**: F-005, F-007
+- **关联组件**: GPU Server 子项目
+- **目标**: 提供 GPU 服务器上的独立部署入口，clone 后进入 `gpu_server/` 即可构建/部署镜像。
+- **实现方案**:
+  - 方案 A: 只提供散落脚本。缺点是部署入口不清晰，难以交接。
+  - 方案 B: 建立 `gpu_server/` 子项目，包含 Dockerfile、compose、配置、scripts、worker_adapter、workflows。推荐，理由: 符合 CLR-ARCH-032。
+- **验收标准**:
+  - [ ] `gpu_server/README.md` 说明前置条件、配置项、部署命令、健康检查、卸载方式。
+  - [ ] `gpu_server/.env.example` 包含 `CONTROL_PLANE_URL`、`WORKER_COUNT`、`GPU_INDICES`、`MODEL_DIR`、`STORAGE_DIR`、`WORKER_TOKEN`。
+  - [ ] `gpu_server/Dockerfile` 固定 ComfyUI、ComfyUI-LTXVideo、Python/CUDA 基础依赖版本。
+  - [ ] `gpu_server/docker-compose.yml` 支持通过配置启动 1-8 个 Worker。
+  - [ ] `scripts/deploy.sh` 和 `scripts/healthcheck.sh` 能在 GPU 服务器上执行。
+  - [ ] 异常路径: GPU 不可见时 deploy/healthcheck 失败并给出明确错误。
+- **依赖**: T-201
+- **预估**: 2d
+- **约束来源**: architecture.md § 3.5, § 4.1, § 8.7; arch_decisions.md D18; CLR-ARCH-032
+
+### T-205: LTX 2.3 distilled single-stage workflow 与模型缓存
+
+- **优先级**: P0
+- **关联 Feature**: F-002, F-003, F-005
+- **关联组件**: Workflow Service, ModelCache
+- **目标**: 准备首个真实 LTX 2.3 T2V/I2V workflow 和模型缓存路径，优先支持 distilled single-stage。
+- **实现方案**:
+  - 方案 A: 直接支持 single-stage、two-stage、upscale。缺点是模型和显存风险过大。
+  - 方案 B: 首版只把 `fast` profile 映射到 distilled single-stage；two-stage/upscale 后置。推荐，理由: 符合 D20。
+- **验收标准**:
+  - [ ] `gpu_server/workflows/` 包含 T2V/I2V 的 LTX 2.3 distilled single-stage Workflow API Format JSON。
+  - [ ] `scripts/download_models.sh` 能把模型下载或校验到 `MODEL_DIR`，并输出缺失模型清单。
+  - [ ] Workflow Service 中 `fast` profile 可映射到真实 LTX distilled single-stage workflow。
+  - [ ] draft/testing/published/rollback 流程对真实 workflow 仍然有效。
+  - [ ] 异常路径: 模型文件缺失时 Worker 不注册为 idle，Admin 可见原因。
+- **依赖**: T-201, T-204
+- **预估**: 2d
+- **约束来源**: architecture.md § 2.2, § 3.5, § 7.3, § 8.7; arch_decisions.md D08, D20; CLR-ARCH-031
+
+### T-206: GPU Worker Adapter 接入 ComfyUI API
+
+- **优先级**: P0
+- **关联 Feature**: F-005, F-008, F-009
+- **关联组件**: Worker Adapter, ComfyUI
+- **目标**: Worker Adapter 接收 assigned attempt，调用本机 ComfyUI headless，回传进度、结果和错误分类。
+- **实现方案**:
+  - 方案 A: 修改 ComfyUI 插件承载业务逻辑。缺点是升级和维护风险高。
+  - 方案 B: Worker Adapter 独立进程旁路调用本机 ComfyUI HTTP/WebSocket。推荐，理由: 与 D05 和 architecture.md § 3.3 一致。
+- **验收标准**:
+  - [ ] `POST /worker/attempts` 接收 attempt_id、task payload、workflow_version_id、input asset URI。
+  - [ ] Adapter 能把 prompt、seed、duration、aspect_ratio、image path 注入 Workflow API Format。
+  - [ ] Adapter 调用 ComfyUI `/prompt` 后记录 comfy_prompt_id。
+  - [ ] Adapter 通过 WebSocket 或 history 轮询回传 progress stage/percent。
+  - [ ] 输出视频写入 `ObjectStorageAdapter` 后，回传 succeeded event；Task Service 写入 output asset 和 usage ledger。
+  - [ ] ComfyUI prompt 校验失败映射为 `invalid_input` 或 `comfyui_prompt_failed`；Worker crash/transient 映射为 retryable。
+- **依赖**: T-202, T-204, T-205
+- **预估**: 2d
+- **约束来源**: architecture.md § 3.3, § 6.3.1, § 7.1, § 8.2, § 8.6; arch_decisions.md D05, D09, D20
+
+### T-207: 单机 8 Worker 编排与健康检查
+
+- **优先级**: P0
+- **关联 Feature**: F-005, F-007, F-012
+- **关联组件**: gpu_server, Worker Registry
+- **目标**: 在一台 8 卡 GPU 服务器上启动 8 个可配置 Worker，并全部注册为业务可用容量。
+- **实现方案**:
+  - 方案 A: 一个进程管理 8 张 GPU。缺点是故障隔离差，容量单位不清晰。
+  - 方案 B: 8 个 Worker service，每个绑定一个 GPU。推荐，理由: 符合 D06/D17。
+- **验收标准**:
+  - [ ] 默认 `WORKER_COUNT=8` 时，compose 启动 8 个 Worker，每个 Worker 的 `CUDA_VISIBLE_DEVICES` 唯一。
+  - [ ] 8 个 Worker 全部向 control plane 注册，Admin 显示 gpu_index 0-7。
+  - [ ] 每个 Worker healthcheck 同时检查 Adapter、ComfyUI、模型路径、存储路径。
+  - [ ] 任意 1 个 Worker 停止后，心跳超时内被标记 unhealthy/offline，Dispatcher 不再派发给它。
+  - [ ] 恢复 Worker 后可重新注册并变为 idle。
+  - [ ] 异常路径: 某张 GPU OOM 时只影响对应 Worker，不影响其他 Worker 派发。
+- **依赖**: T-203, T-206
+- **预估**: 2d
+- **约束来源**: architecture.md § 3.5, § 7.5, § 8.1, § 8.2; arch_decisions.md D06, D17, D18
+
+### T-208: Worker/GPU 可观测性与 Admin 展示
+
+- **优先级**: P0
+- **关联 Feature**: F-010, F-012
+- **关联组件**: Metrics, DCGM, Admin
+- **目标**: 让 Phase 2 上线前能定位哪张 GPU、哪个 Worker、哪个 workflow/profile 导致慢或失败。
+- **实现方案**:
+  - 方案 A: 只靠日志排查。缺点是无法做容量和失败率分析。
+  - 方案 B: Worker `/metrics` + DCGM Exporter + Admin Worker 状态。推荐，理由: CLR-ARCH-026 已确认 Worker 级指标是上线硬要求。
+- **验收标准**:
+  - [ ] Worker `/metrics` 暴露 worker_status、queue_depth、current_attempt、attempt_runtime_seconds、failure_count、last_heartbeat_age。
+  - [ ] GPU 指标至少包含 utilization、memory_used、memory_total、temperature 或能接入 DCGM Exporter。
+  - [ ] Control plane metrics 能按 worker_id/profile/error_class 聚合任务成功率、失败原因、平均生成耗时。
+  - [ ] Admin `/admin/workers` 展示 8 Worker 状态、GPU index、心跳延迟、当前任务、最近错误。
+  - [ ] usage ledger 写入 actual_runtime_seconds，并为 actual_gpu_seconds 留出真实 GPU 计量字段。
+  - [ ] 异常路径: Worker 10 分钟无心跳时 Admin 可见 unhealthy/offline。
+- **依赖**: T-202, T-207
 - **预估**: 1.5d
-- **约束来源**: architecture.md § 5, § 8.3, § 8.6; arch_decisions.md D10, D11, D12
+- **约束来源**: architecture.md § 6.2, § 7.5, § 8.5; arch_decisions.md D10, D13; CLR-ARCH-026
 
-### T-004: API 服务骨架与 API Key 认证
-
-- **优先级**: P0
-- **关联 Feature**: F-001
-- **关联组件**: API Gateway
-- **目标**: 建立外部 API 入口，并完成 API Key 认证和统一错误返回。
-- **实现方案**:
-  - 方案 A: 单体 Web/API 服务内实现 Gateway、Task、Asset、Workflow 模块。推荐，理由: MVP 最小服务数量，部署简单。
-  - 方案 B: 拆成多个微服务。当前不推荐，理由: MVP 阶段增加部署和调试成本。
-- **验收标准**:
-  - [ ] 所有 `/v1/*` 外部 API 要求 `Authorization: Bearer <api_key>`。
-  - [ ] API 入口代码按 Edge Gateway 边界组织，后续可在前面接 Kong 而不修改 `/v1/*` handler 语义。
-  - [ ] API Key 只存 hash，不存明文。
-  - [ ] 无效 API Key 返回 401 和 `AUTH_INVALID_API_KEY`。
-  - [ ] 被停用 API Key 返回 403 和 `AUTH_KEY_DISABLED`。
-  - [ ] 健康检查接口不泄露内部配置和密钥。
-- **依赖**: T-001, T-003
-- **预估**: 1.5d
-- **约束来源**: architecture.md § 6.1, § 6.4, § 8.4; arch_decisions.md D02
-
-### T-005: 资产上传与结果访问 API
+### T-209: Phase 2 真实 GPU E2E 与失败演练
 
 - **优先级**: P0
-- **关联 Feature**: F-003, F-008
-- **关联组件**: Asset Service
-- **目标**: 支持图生视频输入图上传和生成结果下载。
+- **关联 Feature**: F-002, F-003, F-004, F-005, F-007, F-008, F-009, F-010, F-012
+- **关联组件**: 全链路
+- **目标**: 证明 Phase 2 接入真实 GPU 后，外部 API、任务状态机、资产、workflow、usage 和 Admin 契约保持稳定。
 - **实现方案**:
-  - 方案 A: 后端生成短期上传/下载 URL。推荐，理由: 不暴露对象存储长期凭据。
-  - 方案 B: 文件经后端流式代理。适合对象存储不支持签名 URL，但会增加 web 节点带宽压力。
+  - 方案 A: 编写 GPU 专用验收脚本绕过外部 API。缺点是不能证明 Phase 1 API 契约仍然成立。
+  - 方案 B: 复用 Phase 1 API smoke/e2e，将 Executor backend 替换为 `gpu-worker`。推荐，理由: 符合 architecture.md § 7.1。
 - **验收标准**:
-  - [ ] `POST /v1/assets/uploads` 返回 asset_id、upload_url、expires_at。
-  - [ ] 上传完成后的 asset_id 可用于图生视频任务。
-  - [ ] 结果资产可通过 `GET /v1/video-generations/{task_id}/result` 获得临时下载地址。
-  - [ ] 非当前 API Key 所属任务的资产不能被访问。
-  - [ ] 异常路径: 不支持的 content_type 返回 422 和明确错误码。
-- **依赖**: T-003, T-004
-- **预估**: 1d
-- **约束来源**: architecture.md § 6.1, § 8.4; arch_decisions.md D11
-
-### T-006: LTX 工作流模板与版本服务
-
-- **优先级**: P0
-- **关联 Feature**: F-002, F-003, F-006
-- **关联组件**: Workflow Service
-- **目标**: 内置 LTX 文生视频和图生视频模板，并支持 draft/testing/published/rollback。
-- **实现方案**:
-  - 方案 A: 使用数据库保存 source_workflow_json、api_workflow_json 和 profile schema。推荐，理由: 符合架构且便于回滚。
-  - 方案 B: 用文件保存 workflow JSON，数据库只存引用。可行但发布/回滚审计较弱。
-- **验收标准**:
-  - [ ] 至少存在 text_to_video 和 image_to_video 两个 workflow template。
-  - [ ] 每个 template 至少有 fast 和 quality 两个 profile。
-  - [ ] published 版本只能有一个当前生效版本。
-  - [ ] draft 版本不能被外部任务直接执行。
-  - [ ] rollback 后新任务使用回滚目标版本，历史任务仍引用原 workflow_version_id。
-- **依赖**: T-003
-- **预估**: 2d
-- **约束来源**: architecture.md § 5.1, § 5.2, § 7.3; arch_decisions.md D05, D08
-
-### T-007: 任务 API 与状态机
-
-- **优先级**: P0
-- **关联 Feature**: F-004, F-009
-- **关联组件**: Task Service
-- **目标**: 实现异步任务提交、状态查询、取消和结果状态。
-- **实现方案**:
-  - 方案 A: PostgreSQL 任务表 + 状态机 + dispatcher 轮询领取。推荐，理由: GPU 是瓶颈，MVP 不需要独立队列中间件。
-  - 方案 B: 直接引入 Temporal/Redis Queue。当前不推荐，理由: 增加部署复杂度。
-- **验收标准**:
-  - [ ] Dispatcher 通过 QueueAdapter 边界读取和领取 queued 任务。
-  - [ ] Task Service 通过 ExecutorAdapter 调用执行后端；Phase 1 使用 mock/local executor，不出现 GPU Worker 依赖。
-  - [ ] `POST /v1/video-generations` 创建 queued 任务并返回 task_id。
-  - [ ] `GET /v1/video-generations/{task_id}` 返回 queued/running/succeeded/failed/canceled 之一。
-  - [ ] 文生视频任务不要求 image_asset_id。
-  - [ ] 图生视频任务缺少 image_asset_id 时返回 422 和 `REQUEST_IMAGE_REQUIRED`。
-  - [ ] 支持 `Idempotency-Key`，同一 API Key + 同一 key 重试提交返回同一 task_id。
-  - [ ] 异常路径: 参数非法时不创建 task_attempts。
-- **依赖**: T-004, T-006
-- **预估**: 2d
-- **约束来源**: architecture.md § 6.1, § 7.2, § 8.3; arch_decisions.md D03, D04, D12
-
-### T-008: Phase 2 Worker Registry 与 GPU 任务派发
-
-- **优先级**: P2
-- **关联 Feature**: F-007, F-009, F-012
-- **关联组件**: Worker Registry, Dispatcher
-- **目标**: 让 GPU Worker 可注册、心跳、标记 busy/idle，并被任务派发器选择。
-- **实现方案**:
-  - 方案 A: Worker 主动注册 + 心跳，Dispatcher 从数据库选择 idle worker。推荐，理由: 简单、可观测、适合静态容量池。
-  - 方案 B: 只通过 K8s Service 发现 Worker。当前不推荐，理由: 无法表达 GPU 能力、队列深度和业务健康。
-- **验收标准**:
-  - [ ] Worker 启动后调用 `/internal/workers/register` 并获得 worker_id。
-  - [ ] Worker 定期上报 heartbeat、gpu_index、capabilities、queue_depth。
-  - [ ] 心跳超时的 Worker 被标记为 unhealthy/offline，Dispatcher 不再派发新任务。
-  - [ ] Dispatcher 只把任务派给 idle 且 capabilities 匹配 mode/profile 的 Worker。
-  - [ ] Dispatcher 不直接依赖 K8s Pod 列表作为业务健康来源；K8s 只提供基础设施状态，业务可用性以 Worker Registry 为准。
-  - [ ] 异常路径: 任务派发时无可用 Worker，任务保持 queued 或返回 `CAPACITY_UNAVAILABLE`，行为需配置明确。
-- **依赖**: T-002, T-007
-- **预估**: 1.5d
-- **约束来源**: architecture.md § 6.3, § 7.1, § 8.2, § 8.6; arch_decisions.md D04, D06, D07
-
-### T-009: Phase 2 GPU Worker Adapter 接入 ComfyUI API
-
-- **优先级**: P2
-- **关联 Feature**: F-002, F-003, F-005, F-008
-- **关联组件**: GPU Worker Adapter, ComfyUI
-- **目标**: Worker 接收业务 attempt，注入参数到 ComfyUI Workflow API Format，执行并回传结果。
-- **实现方案**:
-  - 方案 A: Worker Adapter 独立进程旁路调用本机 ComfyUI HTTP/WebSocket。推荐，理由: 与 ComfyUI 解耦，便于重启和观测。
-  - 方案 B: 修改 ComfyUI 插件嵌入业务逻辑。当前不推荐，理由: 增加升级风险。
-- **验收标准**:
-  - [ ] Worker 能接收 assigned attempt 并调用 ComfyUI `/prompt`。
-  - [ ] Worker 使用 WebSocket 监听进度，并通过 `/internal/attempts/{attempt_id}/events` 回传 stage/percent。
-  - [ ] Worker 通过 History 获取输出文件并上传到对象存储。
-  - [ ] Worker Adapter 不修改 ComfyUI 内核；业务逻辑只在 Adapter 中实现。
-  - [ ] 文生视频和图生视频各能成功完成 1 个真实 LTX 任务。
-  - [ ] 异常路径: ComfyUI prompt 校验失败时，attempt 标记 failed，error_class 为 invalid_input 或 comfyui_prompt_failed。
-  - [ ] 异常路径: Worker 进程重启后，未完成 attempt 被 Task Service 判定为可恢复失败。
-- **依赖**: T-002, T-005, T-008
-- **预估**: 2d
-- **约束来源**: architecture.md § 2.2, § 3.3, § 6.3, § 7.1; arch_decisions.md D05, D09, D11
-
-### T-010: 重试、attempt 与用量账本
-
-- **优先级**: P0
-- **关联 Feature**: F-009, F-010
-- **关联组件**: Task Service, Usage Ledger
-- **目标**: 完成任务失败分类、最多 3 次 attempt 和 GPU 消耗记录。
-- **实现方案**:
-  - 方案 A: Task Service 统一处理错误分类、重试和 usage ledger。推荐，理由: 业务状态集中。
-  - 方案 B: Worker 自己决定重试。当前不推荐，理由: Worker 不应控制全局任务策略。
-- **验收标准**:
-  - [ ] retryable failure 在 attempt_count < 3 时重新进入 queued。
-  - [ ] invalid_input、policy_rejected 不重试，任务进入 failed。
-  - [ ] mock/local executor 可以模拟 transient、worker_crash、invalid_input 三类错误。
-  - [ ] GPU_OOM 只作为错误码预留，不在 Phase 1 触发真实 GPU 逻辑。
-  - [ ] usage_ledger 记录 profile、estimated_gpu_seconds、actual_runtime_seconds 或 actual_gpu_seconds 空值、attempt_count、result。
-  - [ ] 异常路径: usage ledger 写入失败时，任务不能被标记为 succeeded。
-- **依赖**: T-007
-- **预估**: 1d
-- **约束来源**: architecture.md § 5.1, § 6.4, § 8.2, § 8.3; arch_decisions.md D09, D10
-
-### T-011: 内部管理 Web/Admin
-
-- **优先级**: P0
-- **关联 Feature**: F-006, F-011
-- **关联组件**: Internal Admin
-- **目标**: 提供 MVP 内部管理能力，覆盖工作流、任务、失败重跑、Worker 和用量。
-- **实现方案**:
-  - 方案 A: 在同一 web/control 服务中提供简易 Admin Web 页面。推荐，理由: 满足“web 服务节点”目标且部署简单。
-  - 方案 B: 只提供 Admin API，不做页面。可行但运维体验差，不满足“内部管理友好”的目标。
-- **验收标准**:
-  - [ ] Admin 能查看任务列表并按状态、mode、profile、error_code 过滤。
-  - [ ] Admin 能对 failed 任务触发人工 retry，并形成新的 attempt。
-  - [ ] Admin 能查看 workflow template/version/profile，并执行 publish/rollback。
-  - [ ] Admin 能查看 ExecutorAdapter 当前实现类型为 mock/local。
-  - [ ] Admin 能查看 API Key 维度的任务数、成功数、失败数、attempt_count、estimated_gpu_seconds 和 Phase 1 runtime。
-  - [ ] 异常路径: 非内部 token 访问 Admin 返回 401/403。
-- **依赖**: T-006, T-007, T-010
-- **预估**: 2d
-- **约束来源**: architecture.md § 6.2, § 8.4; arch_decisions.md D02, D08, D10, D13
-
-### T-012: Phase 1 控制面可观测性与健康检查
-
-- **优先级**: P0
-- **关联 Feature**: F-004, F-009, F-010
-- **关联组件**: Observability
-- **目标**: Phase 1 上线前具备定位 API、任务状态、错误和对象存储问题的基本指标。
-- **实现方案**:
-  - 方案 A: 服务暴露 `/metrics`，用 Prometheus + Grafana 或兼容方案采集。推荐，理由: 标准、可扩展。
-  - 方案 B: 只写结构化日志。可作为兜底，但无法满足 Worker 级指标硬要求。
-- **验收标准**:
-  - [ ] 暴露任务成功率、失败原因分布、平均生成耗时、attempt_count 分布。
-  - [ ] 暴露 QueueAdapter queued/running/succeeded/failed 任务数。
-  - [ ] 健康检查能区分 web 服务健康、数据库健康、对象存储健康、mock/local executor 健康。
-  - [ ] 不采集 GPU 利用率、显存、DCGM、Worker 心跳；这些进入 Phase 2。
-  - [ ] 异常路径: mock/local executor 被禁用时，任务保持 queued 或进入 failed，且 Admin 可见原因。
-- **依赖**: T-007, T-010
-- **预估**: 1d
-- **约束来源**: architecture.md § 8.5; arch_decisions.md D13, D16
-
-### T-013: Phase 1 端到端验收与失败演练
-
-- **优先级**: P0
-- **关联 Feature**: F-001, F-003, F-004, F-006, F-009, F-010, F-011
-- **关联组件**: 控制面全链路
-- **目标**: 证明 Phase 1 非 GPU 控制面完成闭环，不依赖 GPU 服务器。
-- **实现方案**:
-  - 方案 A: 编写一组自动化 smoke/e2e 脚本，覆盖 API、worker、admin 和失败演练。推荐，理由: 可重复验证。
-  - 方案 B: 手工操作验收。当前不推荐，理由: 视频生成链路长，手工验收不可回归。
-- **验收标准**:
-  - [ ] 使用 API Key 提交 1 个文生视频任务，mock/local executor 最终将任务置为 succeeded，并返回模拟结果资产。
-  - [ ] 使用 API Key 上传输入图并提交 1 个图生视频任务，mock/local executor 最终将任务置为 succeeded，并返回模拟结果资产。
-  - [ ] 查询接口能看到 queued、running、succeeded/failed 状态变化。
-  - [ ] 人为制造一次 retryable failure，任务最多 3 次 attempt 后成功或进入 failed 终态。
-  - [ ] Admin 能看到任务、workflow、usage、executor 类型数据。
-  - [ ] 对同一 API Key + Idempotency-Key 重复提交，返回同一个 task_id。
-  - [ ] 无效 API Key、缺图、额度不足、executor 不可用都返回架构定义的错误码。
-  - [ ] 验收不要求 ComfyUI、LTX、GPU、K8s、Worker Registry。
-- **依赖**: T-005, T-006, T-010, T-011, T-012
-- **预估**: 2d
-- **约束来源**: architecture.md § 6, § 7.5, § 8.6, § 9; arch_decisions.md D01-D13
-
-### T-014: API 调用说明与示例脚本
-
-- **优先级**: P1
-- **关联 Feature**: F-001, F-002, F-003, F-004
-- **关联组件**: DX 文档
-- **目标**: 让内部测试人员能用 curl 或脚本调用 MVP API。
-- **实现方案**:
-  - 方案 A: 提供 curl + Python 示例。推荐，理由: 最低成本。
-  - 方案 B: 生成完整 SDK。当前不做，超出 MVP。
-- **验收标准**:
-  - [ ] 示例覆盖资产上传、文生视频、图生视频、状态查询、结果下载。
-  - [ ] 示例不包含真实 API Key。
-  - [ ] 示例能在 MVP 环境中执行通过。
-- **依赖**: T-013
-- **预估**: 1d
-- **约束来源**: architecture.md § 6.1
-
-### T-015: Phase 1 部署 Runbook
-
-- **优先级**: P1
-- **关联 Feature**: F-001, F-008, F-011
-- **关联组件**: 运维文档
-- **目标**: 记录从空 web/control 机器到 Phase 1 可用环境的最短部署路径和排障步骤。
-- **实现方案**:
-  - 方案 A: 写一份按节点角色组织的 Runbook。推荐，理由: 第一阶段机器少，最实用。
-  - 方案 B: 直接做完整 IaC。当前不推荐，理由: 环境仍在试错，过早自动化会固化错误。
-- **验收标准**:
-  - [ ] Runbook 覆盖 web/control 节点、对象存储、数据库、Admin、mock/local executor 启动。
-  - [ ] Runbook 包含 smoke test 命令和预期输出。
-  - [ ] Runbook 包含常见故障: 数据库不可用、对象存储失败、API Key 无效、executor 不可用。
-- **依赖**: T-013
-- **预估**: 1d
-- **约束来源**: architecture.md § 8.1, § 8.5, § 8.6
-
-### T-016: Phase 2 GPU 可观测性
-
-- **优先级**: P2
-- **关联 Feature**: F-012
-- **关联组件**: DCGM Exporter, Worker Metrics
-- **目标**: 接入 GPU 后采集 Worker 和 GPU 指标。
-- **实现方案**:
-  - 方案 A: Prometheus + DCGM Exporter + Worker `/metrics`。推荐，理由: 与中期架构一致。
-  - 方案 B: 只用 nvidia-smi 和日志。只可作为临时诊断，不满足中期可观测性要求。
-- **验收标准**:
-  - [ ] 暴露 GPU 利用率、显存占用、温度、错误。
-  - [ ] 暴露 Worker 心跳延迟、queue_depth、busy/idle/unhealthy 状态。
-  - [ ] Admin 能看到 GPU Worker 维度健康状态。
-  - [ ] 异常路径: 某 Worker 10 分钟无心跳时 Admin 可见 unhealthy/offline。
-- **依赖**: T-008, T-009
-- **预估**: 1d
-- **约束来源**: architecture.md § 8.5; arch_decisions.md D13, D16
-
-### T-017: Phase 2 真实 GPU E2E 验收
-
-- **优先级**: P2
-- **关联 Feature**: F-002, F-003, F-005, F-007, F-012
-- **关联组件**: GPU 全链路
-- **目标**: 证明 Phase 2 接入真实 ComfyUI/LTX 后仍保持 Phase 1 API、任务状态机和资产契约不变。
-- **实现方案**:
-  - 方案 A: 在 Phase 1 smoke/e2e 基础上替换 ExecutorAdapter 实现为 GPU Worker。推荐，理由: 能证明边界设计正确。
-  - 方案 B: 单独写 GPU 专用验收脚本。当前不推荐，理由: 容易绕过 Phase 1 API 契约。
-- **验收标准**:
-  - [ ] 使用同一 `POST /v1/video-generations` API 提交文生视频任务，真实 LTX 输出视频并可下载。
-  - [ ] 使用同一资产上传 API 提交图生视频任务，真实 LTX 输出视频并可下载。
-  - [ ] task_id、attempt、usage_ledger、Admin 展示逻辑无需为 GPU 路径重写。
-  - [ ] 关闭 GPU Worker 后，Dispatcher 不再派发新任务，运行中任务按错误分类进入重试或失败。
-- **依赖**: T-009, T-016
-- **预估**: 2d
-- **约束来源**: architecture.md § 7.1, § 7.5, § 8.6; arch_decisions.md D05, D06, D16
+  - [ ] 使用同一 `POST /v1/video-generations` API 提交 1 个真实 T2V，最终返回可下载视频。
+  - [ ] 使用同一资产上传 API 提交 1 个真实 I2V，最终返回可下载视频。
+  - [ ] 并发提交至少 8 个任务时，8 个 Worker 能分别领取任务或按队列顺序稳定派发。
+  - [ ] task_id、attempt、workflow_version_id、output asset、usage ledger 在 GPU 路径下无需外部 API 变更。
+  - [ ] 停止 1 个 Worker 后，新任务不会派发给该 Worker。
+  - [ ] 制造 ComfyUI prompt 失败时，attempt 标记 failed 并写入可诊断 error_class。
+  - [ ] 制造模型缺失/GPU 不可见时，Worker 不注册为 idle，Admin 显示原因。
+  - [ ] `python3 -m pytest` 的 Phase 1 回归仍然通过。
+- **依赖**: T-207, T-208
+- **预估**: 2.5d
+- **约束来源**: architecture.md § 7.1, § 7.2, § 7.5, § 8.6, § 9; arch_decisions.md D17-D20
 
 ## 5. 追溯矩阵
 
 | Feature | 关联任务 | 覆盖状态 |
 |---|---|---|
-| F-001 API Key 认证与资源隔离 | T-001, T-004, T-013 | Phase 1 完整 |
-| F-002 文生视频 API | T-006, T-007, T-013, T-017 | Phase 1 模拟执行；Phase 2 真实 GPU |
-| F-003 图生视频 API | T-005, T-006, T-007, T-013, T-017 | Phase 1 模拟执行；Phase 2 真实 GPU |
-| F-004 异步任务提交、查询、结果获取 | T-007, T-013 | Phase 1 完整 |
-| F-005 ComfyUI headless Worker 执行 | T-002, T-009, T-017 | Phase 2 |
-| F-006 工作流双格式、版本、发布和回滚 | T-006, T-011, T-013 | Phase 1 完整 |
-| F-007 GPU Worker 服务发现与单卡执行 | T-002, T-008, T-017 | Phase 2 |
-| F-008 模型缓存与输入输出对象存储 | T-003, T-005, T-013, T-009 | Phase 1 资产存储；Phase 2 模型缓存 |
-| F-009 任务重试、attempt、错误分类 | T-007, T-010, T-013, T-008 | Phase 1 控制面完整；Phase 2 GPU 错误扩展 |
-| F-010 任务计数、GPU 消耗量和额度记录 | T-003, T-010, T-011, T-013 | Phase 1 账本完整，真实 GPU 秒 Phase 2 补实 |
-| F-011 内部管理后台 | T-011, T-013 | Phase 1 完整 |
-| F-012 Worker 级可观测性 | T-012, T-016 | Phase 1 控制面指标；Phase 2 GPU/Worker 指标 |
+| F-002 文生视频 API | T-205, T-206, T-209 | Phase 2 真实 GPU 完整 |
+| F-003 图生视频 API | T-201, T-205, T-206, T-209 | Phase 2 真实 GPU 完整 |
+| F-004 异步任务提交/查询/结果 | T-203, T-209 | 外部 API 不变 |
+| F-005 ComfyUI headless Worker 执行 | T-204, T-205, T-206, T-207, T-209 | 完整 |
+| F-007 GPU Worker 服务发现与单卡执行 | T-202, T-203, T-207, T-209 | 完整 |
+| F-008 模型缓存与输入输出对象存储 | T-201, T-205, T-206, T-209 | 完整 |
+| F-009 任务重试、attempt、错误分类 | T-203, T-206, T-209 | 完整 |
+| F-010 任务计数、GPU 消耗量和额度记录 | T-201, T-208, T-209 | 完整 |
+| F-012 Worker 级可观测性 | T-202, T-207, T-208, T-209 | 完整 |
 
 ## 6. 风险评估
 
 | 风险 | 影响 | 概率 | 缓解措施 |
 |---|---|---|---|
-| Phase 1 mock/local executor 与 Phase 2 GPU Worker 行为不一致 | Phase 2 接入时状态机返工 | 中 | ExecutorAdapter 契约固定 task_id、attempt、error_class、usage ledger；T-017 用同一 API 验证 |
-| GPU 型号/显存不足以稳定跑 LTX 2.3 | Phase 2 文生/图生任务失败或 OOM | 中 | T-002 先做真实 ComfyUI/LTX 最小任务验证；T-010 预留 GPU_OOM |
-| ComfyUI workflow API Format 与 UI workflow 不一致 | Phase 2 Worker 无法执行模板 | 中 | T-006 明确保存 source 和 api 两种格式；T-009 以真实 `/prompt` 验证 |
-| 对象存储未选型或签名 URL 不可用 | 图生输入和结果下载阻塞 | 中 | T-003 用适配器抽象；T-005 支持后端代理作为降级 |
-| 缺少 feature-specs 导致验收边界变化 | 实现阶段返工 | 中 | 本规划在每个任务标注 architecture 约束来源；后续补 drafting/reviewer |
-| K8s/GPU Operator 安装耗时超预期 | Phase 2 T-002 阻塞 Worker | 中 | 保留 Docker Compose + NVIDIA Container Toolkit 作为临时降级，但最终应回到 K8s |
-| MVP 走成临时脚本导致中期重写 | 后续接入 GPU/Kong/Redis/KEDA 时返工 | 高 | T-001/T-003/T-004/T-007/T-010 强制验收适配器和边界 |
-| 开源参考项目许可证不适合商业化复制 | 法务和分发风险 | 中 | 只参考 comfyui-deploy/runpod worker 的设计，不复制代码；商业化前做许可证审查 |
+| 8 个 Worker 同时加载 LTX 模型导致磁盘 IO 或显存压力 | Worker 启动慢或 OOM | 中 | `gpu_server/` 支持错峰启动、模型预检、单 Worker healthcheck |
+| 本地共享存储在未来多机不可用 | 多机扩展返工 | 中 | 所有资产访问必须经 `ObjectStorageAdapter`，T-302 切换 MinIO/S3 |
+| ComfyUI workflow API Format 与 UI workflow 不一致 | prompt 提交失败 | 中 | T-205 固化 API Format JSON，T-206 用真实 `/prompt` 验证 |
+| Worker crash 后 attempt 状态不一致 | 任务卡死或重复执行 | 中 | T-203/T-207 要求心跳超时摘除和 retryable attempt 判定 |
+| GPU 型号/显存不足稳定运行 LTX 2.3 | E2E 失败或耗时超预期 | 中 | T-205/T-209 首版只验收 distilled single-stage，记录 profile 实测耗时 |
+| DCGM/Prometheus 接入耗时 | 观测缺口 | 低 | T-208 先提供 Worker `/metrics`，DCGM 作为 GPU 指标来源接入 |
 
 ## 7. Gate 检查
 
-- [x] 每个 Phase 1 P0 Feature 都有对应任务。
-- [x] 每个 P0 任务粒度控制在 1-2 天。
+- [x] 每个 Phase 2 P0 Feature 都有对应任务。
+- [x] 每个 P0 任务粒度约 1-2 天；T-209 为 E2E 验收任务，允许 2.5 天。
 - [x] P0 任务包含异常路径验收。
 - [x] 依赖图无循环。
-- [x] 验收标准具体到断言级别。
-- [x] 追溯矩阵完整，任务 -> Feature -> 组件链路可追溯。
-- [x] 关键实现路径有至少 2 个方案并已选定推荐方案。
-- [x] 无孤儿任务；P1/Phase 2 均有明确边界。
+- [x] 验收标准具体到可测试断言。
+- [x] 追溯矩阵完整。
+- [x] 关键实现路径有 ≥2 方案并已选定。
+- [x] 无孤儿任务；P2 后置任务均有明确边界。
 
-结论: PASS_WITH_CONCERNS。
-
-残余关注:
-
-- 缺少正式 feature-specs 和 arch_review，本规划仍是 DRAFT。
-- GPU 型号、显存、模型下载路径不进入 Phase 1，作为 Phase 2 输入风险保留。
-- 用户新增目标包含“web 服务节点”，本规划将其解释为 web/control 节点承载 API + Admin + Task + DB；不改变“对外 API-only”的架构决策。
-- 用户新增目标要求 MVP 服从中期规划；本规划已把 Kong、Redis/Temporal、KEDA 作为中期目标组件，并通过稳定接口保证 MVP 可演进。
-- 用户最新阶段目标要求 Phase 1 不处理 GPU 服务器及相关逻辑；本规划已将 GPU 节点、Worker Registry、GPU Worker Adapter、ComfyUI/LTX、DCGM 和真实 GPU E2E 移到 Phase 2。
+结论: PASS_WITH_CONCERN。主要风险是 Phase 2 真实 GPU 规格、模型路径和 LTX 2.3 8 Worker 并发性能需要在 T-205/T-209 中实测。

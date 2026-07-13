@@ -1,36 +1,37 @@
 completion_signal:
   skill: pb-v1-planning
   status: completed
+  scope: "Phase 2 GPU execution engineering plan"
   artifacts:
     - path: docs/iterations/ltx-video-service/tasks.md
       type: tasks
   issues:
     - id: PLAN-UPSTREAM-001
-      description: 缺少 feature-specs/ 和 arch_review.md，本规划以 architecture.md、arch_decisions.md 和用户新增 MVP 目标为输入。
+      description: 缺少正式 proposal/feature-specs 和 arch_review.md；Phase 2 任务规划基于 clarifications、architecture 和 arch_decisions 派生能力。
       severity: MAJOR
       points_to_upstream: true
       gate_candidate: G2
-    - id: PLAN-SCOPE-001
-      description: 用户将第一阶段收窄为非 GPU 控制面；规划解释为 1 个 web/control 节点，不处理 GPU 服务器及相关逻辑。
-      severity: MINOR
-      points_to_upstream: false
     - id: PLAN-CAPACITY-001
-      description: GPU 型号、显存、LTX 2.3 实测耗时不进入 Phase 1；Phase 2 容量与性能验收需要 T-002/T-017 实测。
+      description: GPU 型号、显存、磁盘容量、LTX 2.3 8 Worker 并发耗时仍需在 T-205/T-209 实测。
       severity: MINOR
       points_to_upstream: false
       gate_candidate: G4
-    - id: PLAN-ROADMAP-001
-      description: Phase 1 规划已调整为中期目标架构的控制面切片；运行件可简化，但 Edge Gateway、QueueAdapter、ObjectStorageAdapter、ExecutorAdapter 边界必须保留。
-      severity: MINOR
-      points_to_upstream: false
   assumptions:
     - clr_id: CLR-ARCH-024
-      summary: 第一阶段对外只提供 API，通过 API Key 做资源隔离。
+      summary: 对外只提供 API，通过 API Key 做资源隔离。
     - clr_id: CLR-ARCH-016
-      summary: GPU 集群采用 Kubernetes + NVIDIA GPU Operator；进入 Phase 2。
+      summary: Kubernetes + NVIDIA GPU Operator 保留为多机或 Phase 2.5 路径。
     - clr_id: CLR-ARCH-017
-      summary: 单任务单卡，每张 GPU 一个 ComfyUI Worker；进入 Phase 2。
+      summary: 单任务单卡，每张 GPU 一个 ComfyUI Worker。
     - clr_id: CLR-ARCH-018
       summary: 模型走本地缓存，输入输出走对象存储抽象。
+    - clr_id: CLR-ARCH-029
+      summary: Phase 2 首版按一台 8 卡 GPU 服务器、默认 8 Worker 验收；Worker 数量必须可配置。
+    - clr_id: CLR-ARCH-030
+      summary: Phase 2 可先用本地共享存储，也可用 MinIO，但必须经 ObjectStorageAdapter。
+    - clr_id: CLR-ARCH-031
+      summary: Phase 2 首个真实 LTX profile 使用 distilled single-stage；two-stage/upscale 后置。
+    - clr_id: CLR-ARCH-032
+      summary: Phase 2 必须新增 gpu_server/，作为 GPU 节点部署子项目。
     - clr_id: ROADMAP-OPEN-SOURCE
-      summary: Phase 1 默认运行件为 FastAPI、PostgreSQL、MinIO 和控制面基础指标；Kubernetes/k3s、NVIDIA GPU Operator、ComfyUI、ComfyUI-LTXVideo、DCGM Exporter 进入 Phase 2；Kong、Redis/Temporal、KEDA 后置。
+      summary: Phase 2 首版采用 gpu_server/、Docker Compose、NVIDIA Container Toolkit、ComfyUI、ComfyUI-LTXVideo、DCGM/Worker 指标；Kong、Redis/Temporal、KEDA 后置。

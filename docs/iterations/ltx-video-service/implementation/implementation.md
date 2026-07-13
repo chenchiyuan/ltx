@@ -1,8 +1,8 @@
-# Phase 1 实现记录
+# 实现记录
 
-⚠️ 前置门禁跳过: `review-logs/plan_review.md` 不存在，工程规划未经独立 plan review 文件验证。本轮基于用户确认的 Phase 1 边界继续实现。
+## Phase 1 历史记录
 
-⚠️ 提交限制: 当前工作目录不是 git repository，无法按 `pb-v1-implementing` 要求做逐任务 commit。
+⚠️ Phase 1 历史说明: 当时 `review-logs/plan_review.md` 不存在，工程规划未经独立 plan review 文件验证。本轮 Phase 2 T-201 已补齐 `plan_review` PASS。
 
 ## 范围
 
@@ -20,6 +20,39 @@
 ## 本地调研结论
 
 仓库在实现前只有架构、澄清和规划文档，没有既有服务代码可复用。实现采用当前环境已可用的 FastAPI、SQLAlchemy、Pydantic、pytest/TestClient，并以 `src/ltx_service` 建立最小服务结构。
+
+## Phase 2 T-201 实现记录
+
+### T-201: Phase 2 运行配置与共享存储边界
+
+- **状态**: 已完成
+- **调研结论**:
+  - `src/ltx_service/config.py` 已集中管理环境变量，适合扩展 `storage_backend` 与 MinIO 配置。
+  - `src/ltx_service/storage.py` 已有 `ObjectStorageAdapter` 和本地文件实现，可直接扩展 URI 生成与 health probe。
+  - `assets.py` 和 `tasks.py` 是输入图/输出视频写入点，原先写死 `local://`，需要收敛到 adapter。
+  - `/health` 已暴露 storage health，适合直接承载共享目录不可写探针。
+- **实现文件**:
+  - `src/ltx_service/config.py`
+  - `src/ltx_service/storage.py`
+  - `src/ltx_service/app.py`
+  - `src/ltx_service/assets.py`
+  - `src/ltx_service/tasks.py`
+  - `tests/test_phase1_api.py`
+  - `docs/iterations/ltx-video-service/implementation/protocol.md`
+  - `docs/iterations/ltx-video-service/implementation/implementation.md`
+- **关键决策**:
+  - 新增 `storage_backend=local_shared|minio`；`local_shared` 为当前可运行后端。
+  - `minio` 先作为配置和 adapter 边界，真实生产切换仍归 T-302。
+  - 输入图和输出视频都通过 `ObjectStorageAdapter.uri_for(...)` 生成 storage URI，业务层不再硬编码本地路径。
+  - `local_shared` health 使用写入/读取/删除探针，不在 health 响应中暴露本地目录。
+- **验收覆盖**:
+  - local_shared 正常路径: health ok、输入/输出 asset URI 不泄露本地路径。
+  - local_shared 异常路径: root 不可写时 health degraded/storage failed。
+  - 输出写入失败路径: 任务不会被标记为 succeeded。
+  - MinIO 配置路径: `require_env` 下缺少 MinIO 变量会明确列出变量名。
+- **遗留问题**:
+  - 未连接真实 MinIO 服务；生产对象存储切换属于 T-302。
+  - 未实现 GPU Worker 侧共享挂载；属于 T-204/T-207。
 
 ## Task 还原
 

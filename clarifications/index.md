@@ -8,3 +8,4 @@
 - [Round 4](architecture/round-4.md) - ComfyUI + LTX 2.3 任务可靠性与 GPU 服务发现/挂载
 - [Round 5](architecture/round-5.md) - ComfyUI + LTX 2.3 任务重试、计数与后台管理边界
 - [Round 6](architecture/round-6.md) - ComfyUI + LTX 2.3 API 隔离、额度计量、可观测性、容量和工作流发布策略
+- [Round 7](architecture/round-7.md) - Phase 2 GPU 执行层部署边界与首版验收口径

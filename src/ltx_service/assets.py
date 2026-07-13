@@ -12,7 +12,14 @@ from .storage import ObjectStorageAdapter
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
-def create_upload_asset(session: Session, api_key: ApiKey, filename: str, content_type: str, size_bytes: int) -> Asset:
+def create_upload_asset(
+    session: Session,
+    storage: ObjectStorageAdapter,
+    api_key: ApiKey,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+) -> Asset:
     if content_type not in ALLOWED_IMAGE_TYPES:
         raise api_error(422, "REQUEST_INVALID_PARAMETER", f"Unsupported content_type: {content_type}")
     asset_id = new_id("ast")
@@ -20,7 +27,7 @@ def create_upload_asset(session: Session, api_key: ApiKey, filename: str, conten
         id=asset_id,
         api_key_id=api_key.id,
         kind="input",
-        storage_uri=f"local://inputs/{asset_id}/{filename}",
+        storage_uri=storage.uri_for("inputs", asset_id, filename),
         content_type=content_type,
         size_bytes=size_bytes,
         status="pending",

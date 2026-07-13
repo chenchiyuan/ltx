@@ -3,8 +3,8 @@
 ## 约束来源
 
 - `docs/iterations/ltx-video-service/architecture.md`: 模块划分、API 契约、数据模型、状态机、非功能要求。
-- `docs/iterations/ltx-video-service/arch_decisions.md`: D16 明确 Phase 1 只交付非 GPU 控制面。
-- `docs/iterations/ltx-video-service/tasks.md`: Phase 1 P0/P1 任务、验收标准和依赖。
+- `docs/iterations/ltx-video-service/arch_decisions.md`: D16 明确 Phase 1 只交付非 GPU 控制面；D19 明确 Phase 2 可先用本地共享存储并保持 `ObjectStorageAdapter` 边界。
+- `docs/iterations/ltx-video-service/tasks.md`: Phase 1 P0/P1 任务、Phase 2 T-201 验收标准和依赖。
 
 ## Phase 1 范围
 
@@ -24,6 +24,21 @@ Phase 1 只实现 web/control 节点能力：
 Phase 1 禁止实现：
 
 - GPU 服务器、GPU Worker、Worker Registry、ComfyUI/LTX 真实执行、Kubernetes/GPU Operator、DCGM。
+
+## Phase 2 T-201 范围
+
+T-201 只实现运行配置与共享存储边界：
+
+- `Settings.storage_backend` 支持 `local_shared` 和 `minio` 配置值。
+- `local_shared` 是当前可运行后端，输入图和输出视频都必须经 `ObjectStorageAdapter` 生成 `storage_uri` 并读写。
+- `minio` 作为后续 T-302 生产对象存储切换的配置边界；当前 adapter 可构建，但真实运行依赖 MinIO SDK 和 MinIO 服务。
+- `/health` 必须用写入型探针发现本地共享目录不可写，并返回 `storage=failed`。
+- 外部 API、asset metadata 和 health detail 不得暴露本地文件系统路径。
+- 存储异常发生在输出写入前时，任务不能被标记为 `succeeded`。
+
+T-201 禁止实现：
+
+- Worker Registry、GPU Dispatcher、GPU Worker Adapter、ComfyUI/LTX 真实执行、`gpu_server/` 部署目录。
 
 ## 技术栈
 
@@ -48,6 +63,7 @@ Phase 1 禁止实现：
 | Admin | `src/ltx_service/api.py` |
 | Data Models | `src/ltx_service/models.py` |
 | App Composition | `src/ltx_service/app.py` |
+| Runtime Config | `src/ltx_service/config.py` |
 
 ## 状态机
 
@@ -114,6 +130,10 @@ Internal/Admin:
 | Admin forbidden | missing token | 401/403 | F-011 |
 | Health | services available | db/storage/executor healthy | F-012 |
 | Metrics | tasks exist | text metrics include task counts | F-012 |
+| T-201 local_shared URI boundary | local_shared backend + asset upload + output | input/output `storage_uri` uses adapter URI and does not expose local path | F-008/F-010 |
+| T-201 storage health failure | local_shared root points to invalid file path | `/health` returns degraded and `storage=failed` | F-008 |
+| T-201 output write failure | storage write fails before task completion | completion fails and task remains non-succeeded | F-008/F-009 |
+| T-201 minio required env | `LTX_REQUIRE_ENV=true`, backend `minio`, missing MinIO vars | RuntimeError lists missing MinIO env vars | F-008 |
 
 ## 还原检查清单
 
@@ -123,6 +143,9 @@ Internal/Admin:
 - [ ] Task Service 通过 `ExecutorAdapter` 执行，不直接内联 mock 逻辑。
 - [ ] Queue/dispatch 通过边界方法处理 queued/running。
 - [ ] Object storage 通过 `ObjectStorageAdapter`。
+- [ ] 输入图和输出视频的 `storage_uri` 由 `ObjectStorageAdapter.uri_for` 生成。
+- [ ] `local_shared` health probe 验证目录可写，不泄露本地路径。
+- [ ] `minio` 配置边界存在，缺少必要配置时快速失败并列出变量名。
 - [ ] Workflow 保存 source 和 API JSON。
 - [ ] Usage ledger 与 task completion 同步写入。
 - [ ] Tests 覆盖正常路径和异常路径。

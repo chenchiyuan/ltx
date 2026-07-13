@@ -1,6 +1,6 @@
 # ComfyUI + LTX 2.3 视频生成服务架构决策日志
 
-> 决策链来源: `clarifications/architecture/round-1.md` 到 `round-6.md`。当前缺少正式 proposal/feature-specs，因此所有决策均引用已确认 CLR 条目。
+> 决策链来源: `clarifications/architecture/round-1.md` 到 `round-7.md`。当前缺少正式 proposal/feature-specs，因此所有决策均引用已确认 CLR 条目。
 
 ## 决策链概览
 
@@ -22,6 +22,10 @@ graph TD
   D00 --> D14["D14: 中期目标架构驱动 MVP 切片"]
   D14 --> D15["D15: 开源优先但运行件分阶段引入"]
   D14 --> D16["D16: Phase 1 只交付非 GPU 控制面"]
+  D16 --> D17["D17: Phase 2 单机 8 Worker 首版验收"]
+  D17 --> D18["D18: gpu_server/ 作为 GPU 部署子项目"]
+  D18 --> D19["D19: 本地共享存储作为 Phase 2 过渡实现"]
+  D17 --> D20["D20: LTX distilled single-stage 首个真实 profile"]
 ```
 
 ## D00: 上游输入来源
@@ -123,9 +127,9 @@ graph TD
 - **方案 B**: Kubernetes + NVIDIA GPU Operator。
 - **推荐**: 方案 B。
 - **理由**: 需要 GPU 资源声明、Pod 生命周期、服务发现和监控；手工部署难以运维。
-- **决策结果**: 采用 Kubernetes + NVIDIA GPU Operator，静态容量池。
+- **决策结果**: 多机 GPU 容量池采用 Kubernetes + NVIDIA GPU Operator，静态容量池。
 - **前置引用**: CLR-ARCH-016, CLR-ARCH-027。
-- **影响**: 部署复杂度转移到集群和 Worker 镜像标准化。
+- **影响**: 部署复杂度转移到集群和 Worker 镜像标准化。D18 将 Phase 2 单机首版改为 `gpu_server/` + Docker Compose，Kubernetes/GPU Operator 保留为多机或 Phase 2.5 演进路径。
 
 ## D08: 工作流双格式和发布流程
 
@@ -227,7 +231,7 @@ graph TD
 - **方案 B**: 中期架构采用开源优先，但 MVP 只引入必要运行件；Kong、Redis、KEDA 等在边界稳定后进入 Beta/Scale 阶段。
 - **推荐**: 方案 B。
 - **理由**: Phase 1 的目标是跑通 1 个 web/control 节点的非 GPU 控制面。一次性引入 Kong、Redis、KEDA 或 GPU 运行件会增加故障面，不会提高第一阶段成功率。通过 Edge Gateway、QueueAdapter、ObjectStorageAdapter、ExecutorAdapter 保持演进路径即可。
-- **决策结果**: Phase 1 默认采用 FastAPI、PostgreSQL、MinIO 和控制面基础指标；Kubernetes/k3s、NVIDIA GPU Operator、ComfyUI、ComfyUI-LTXVideo、DCGM Exporter 进入 Phase 2；Kong、Redis/Temporal、KEDA 进入 Beta/Scale 阶段。
+- **决策结果**: Phase 1 默认采用 FastAPI、PostgreSQL、MinIO 和控制面基础指标；ComfyUI、ComfyUI-LTXVideo、DCGM Exporter 进入 Phase 2；Kubernetes/k3s、NVIDIA GPU Operator 作为多机或 Phase 2.5 路径；Kong、Redis/Temporal、KEDA 进入 Beta/Scale 阶段。
 - **前置引用**: D02, D07, D11, D12, D13, D14。
 - **影响**: MVP 任务需要明确哪些组件是当前运行依赖，哪些是中期兼容目标。
 
@@ -240,6 +244,58 @@ graph TD
 - **方案 B**: Phase 1 只实现 web/control 面和任务控制面，用 `ExecutorAdapter` 的 mock/local implementation 验证任务状态机；Phase 2 再接入 GPU Worker、ComfyUI/LTX、K8s/GPU Operator 和 GPU 指标。
 - **推荐**: 方案 B。
 - **理由**: 这符合用户最新阶段目标，同时不牺牲中期架构。通过 `ExecutorAdapter` 保持执行后端可替换，Phase 2 接 GPU 时不需要改外部 API、任务状态机、attempt、workflow、asset、usage ledger。
-- **决策结果**: Phase 1 范围为 API Key、Asset、Workflow、Task、QueueAdapter、ExecutorAdapter mock/local、Usage、Admin、控制面健康检查；Phase 2 范围为 GPU 节点、Worker Registry、GPU Worker Adapter、ComfyUI/LTX、Kubernetes/GPU Operator、DCGM 和真实 GPU E2E。
+- **决策结果**: Phase 1 范围为 API Key、Asset、Workflow、Task、QueueAdapter、ExecutorAdapter mock/local、Usage、Admin、控制面健康检查；Phase 2 范围为单机 8 Worker GPU 节点、Worker Registry、GPU Worker Adapter、ComfyUI/LTX、DCGM 和真实 GPU E2E；Kubernetes/GPU Operator 进入多机或 Phase 2.5。
 - **前置引用**: D01-D15。
 - **影响**: `tasks.md` 需要重排为 Phase 1/Phase 2；所有 GPU 相关任务从 Phase 1 P0 移到 Phase 2。
+
+## D17: Phase 2 单机 8 Worker 首版验收
+
+- **时间**: 2026-07-13
+- **级别**: L1
+- **上下文**: Phase 2 原规划是至少 1 个 GPU 服务节点接入真实执行。用户进一步确认首版不是 1 卡 E2E，而是一台 8 卡服务器吃满 8 卡。
+- **方案 A**: 先 1 张 GPU 跑通真实 E2E，再扩展到 8 Worker。
+- **方案 B**: 首版即以 1 台 8 卡 GPU 服务器、8 个可配置 Worker 作为验收口径。
+- **推荐**: 方案 B。
+- **理由**: 用户当前目标是验证整机容量和 Worker 派发，不只是证明单卡可用；8 Worker 能更早暴露模型缓存、显存、并发派发和 Worker Registry 问题。
+- **决策结果**: Phase 2 首版按一台 8 卡 GPU 服务器、默认 8 Worker 验收；Worker 数量必须可配置。
+- **前置引用**: D06, D16, CLR-ARCH-029。
+- **影响**: Dispatcher、Worker Registry、部署脚本、E2E 测试都必须覆盖 8 Worker 并发/摘除能力。
+
+## D18: `gpu_server/` 作为 GPU 部署子项目
+
+- **时间**: 2026-07-13
+- **级别**: L1
+- **上下文**: 用户要求 GPU 部署作为单独目录，clone 项目后进入 `gpu_server/` 即可部署镜像。
+- **方案 A**: 将 GPU 部署脚本散落在根目录或通用 deploy 目录。
+- **方案 B**: 新建 `gpu_server/` 子项目，包含 Dockerfile、compose/manifests、配置、模型下载脚本、Worker Adapter 和部署说明。
+- **推荐**: 方案 B。
+- **理由**: GPU 服务器部署依赖 CUDA、模型缓存、ComfyUI 依赖和 Worker 数量配置，独立目录能隔离风险并提供清晰入口。
+- **决策结果**: Phase 2 必须新增 `gpu_server/`，作为 GPU 节点部署子项目。
+- **前置引用**: D17, CLR-ARCH-032。
+- **影响**: 后续 planning/implementation 必须把 GPU 镜像、8 Worker 编排、模型缓存和健康检查落到 `gpu_server/`。
+
+## D19: 本地共享存储作为 Phase 2 过渡实现
+
+- **时间**: 2026-07-13
+- **级别**: L2
+- **上下文**: Phase 2 第一版只有一台 GPU 服务器，用户允许先用本地存储，后续替换对象存储。
+- **方案 A**: Phase 2 一开始强制 MinIO。
+- **方案 B**: `ObjectStorageAdapter` 支持本地共享目录和 MinIO 两种实现；单机 8 Worker 首版可先用本地共享目录。
+- **推荐**: 方案 B。
+- **理由**: 单机验证的核心风险在 GPU/Worker/ComfyUI，不在对象存储选型；但必须保持适配器边界，否则后续替换会影响 API 和 Worker。
+- **决策结果**: Phase 2 可先用本地共享存储，MinIO 作为推荐共享对象存储实现；业务代码只依赖 `ObjectStorageAdapter`。
+- **前置引用**: D11, CLR-ARCH-030。
+- **影响**: `gpu_server/` 需要挂载同一 shared storage 路径；多机前必须切到 MinIO/S3 兼容对象存储。
+
+## D20: LTX distilled single-stage 首个真实 profile
+
+- **时间**: 2026-07-13
+- **级别**: L2
+- **上下文**: LTX 2.3 workflow 有不同复杂度路径，首个真实 E2E 需要降低模型和工作流失败面。
+- **方案 A**: 首版同时支持 single-stage、two-stage、upscale。
+- **方案 B**: 首个真实 profile 只要求 distilled single-stage；two-stage/upscale 后置。
+- **推荐**: 方案 B。
+- **理由**: 首版目标是证明控制面到真实 GPU 执行的闭环，two-stage/upscale 会显著增加模型下载、显存和调参复杂度。
+- **决策结果**: Phase 2 首个真实 LTX profile 按 distilled single-stage 优先；two-stage/upscale 作为后续增强。
+- **前置引用**: D08, D17, CLR-ARCH-031。
+- **影响**: `workflow_profiles.fast` 应先映射 distilled single-stage；quality/upscale 不作为 Phase 2 首版阻塞验收。
