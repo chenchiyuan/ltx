@@ -170,7 +170,7 @@ def _is_widget_spec(spec: Any) -> bool:
     if not isinstance(spec, list) or not spec:
         return False
     first = spec[0]
-    return isinstance(first, (str, int, float, bool)) or isinstance(first, list)
+    return isinstance(first, list) or first in {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"}
 
 
 def _fetch_first_video(client: ComfyUIClient, outputs: dict[str, Any]) -> bytes:
