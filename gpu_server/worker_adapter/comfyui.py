@@ -62,7 +62,7 @@ def convert_ui_workflow_to_api(workflow: dict[str, Any], object_info: dict[str, 
             connected.add(input_item["name"])
 
         widget_values = list(node.get("widgets_values") or [])
-        for input_name, value in zip(_widget_input_names(class_type, object_info), widget_values):
+        for input_name, value in zip(_widget_input_names(class_type, object_info, widget_values), widget_values):
             if input_name not in connected and input_name not in inputs:
                 inputs[input_name] = value
 
@@ -155,22 +155,74 @@ def dimensions_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
     return presets.get(aspect_ratio, presets["16:9"])
 
 
-def _widget_input_names(class_type: str, object_info: dict[str, Any]) -> list[str]:
+def _widget_input_names(
+    class_type: str,
+    object_info: dict[str, Any],
+    widget_values: list[Any] | None = None,
+) -> list[str]:
     node_info = object_info.get(class_type, {})
     inputs = node_info.get("input", {})
+    names, _ = _collect_widget_input_names(inputs, list(widget_values or []), 0)
+    return names
+
+
+def _collect_widget_input_names(
+    inputs: dict[str, Any],
+    widget_values: list[Any],
+    value_index: int,
+) -> tuple[list[str], int]:
     names: list[str] = []
     for section in ("required", "optional"):
         for name, spec in inputs.get(section, {}).items():
             if _is_widget_spec(spec):
                 names.append(name)
-    return names
+                selected_value = _widget_value_at(widget_values, value_index, spec)
+                value_index += 1
+                if _is_dynamic_combo_spec(spec):
+                    nested_inputs = _dynamic_combo_inputs_for_value(spec, selected_value)
+                    nested_names, value_index = _collect_widget_input_names(
+                        nested_inputs,
+                        widget_values,
+                        value_index,
+                    )
+                    names.extend(nested_names)
+    return names, value_index
 
 
 def _is_widget_spec(spec: Any) -> bool:
     if not isinstance(spec, list) or not spec:
         return False
     first = spec[0]
-    return isinstance(first, list) or first in {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"}
+    return isinstance(first, list) or first in {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO", "COMFY_DYNAMICCOMBO_V3"}
+
+
+def _is_dynamic_combo_spec(spec: Any) -> bool:
+    return isinstance(spec, list) and bool(spec) and spec[0] == "COMFY_DYNAMICCOMBO_V3"
+
+
+def _widget_value_at(widget_values: list[Any], value_index: int, spec: Any) -> Any:
+    if value_index < len(widget_values):
+        return widget_values[value_index]
+    if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict):
+        return spec[1].get("default")
+    return None
+
+
+def _dynamic_combo_inputs_for_value(spec: Any, selected_value: Any) -> dict[str, Any]:
+    if not isinstance(spec, list) or len(spec) < 2 or not isinstance(spec[1], dict):
+        return {}
+    options = spec[1].get("options")
+    if isinstance(options, dict):
+        option = options.get(selected_value) or options.get(str(selected_value))
+        return option.get("inputs", {}) if isinstance(option, dict) else {}
+    if not isinstance(options, list):
+        return {}
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        if selected_value in {option.get("key"), option.get("value"), option.get("name")}:
+            return option.get("inputs", {}) if isinstance(option.get("inputs"), dict) else {}
+    return {}
 
 
 def _fetch_first_video(client: ComfyUIClient, outputs: dict[str, Any]) -> bytes:
