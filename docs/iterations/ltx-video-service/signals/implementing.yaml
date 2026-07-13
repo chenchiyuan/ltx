@@ -1,43 +1,64 @@
 completion_signal:
   skill: pb-v1-implementing
   status: completed
-  scope: "Phase 2 T-203 GPU Dispatcher and ExecutorAdapter dispatch boundary"
+  scope: "Phase 2 T-204 gpu_server same-host deployment on 162.62.55.111"
   artifacts:
     - path: docs/iterations/ltx-video-service/implementation/protocol.md
       type: protocol
     - path: docs/iterations/ltx-video-service/implementation/implementation.md
       type: implementation-record
-    - path: src/ltx_service/config.py
+    - path: gpu_server/README.md
+      type: runbook
+    - path: gpu_server/.env.example
+      type: config-contract
+    - path: gpu_server/control.Dockerfile
+      type: deployment
+    - path: gpu_server/Dockerfile
+      type: deployment
+    - path: gpu_server/docker-compose.yml
+      type: deployment
+    - path: gpu_server/scripts/deploy.sh
+      type: deployment-script
+    - path: gpu_server/scripts/healthcheck.sh
+      type: healthcheck-script
+    - path: gpu_server/worker_adapter/runtime.py
       type: code
-    - path: src/ltx_service/executor.py
-      type: code
-    - path: src/ltx_service/app.py
-      type: code
-    - path: src/ltx_service/database.py
-      type: code
-    - path: src/ltx_service/models.py
-      type: code
-    - path: src/ltx_service/tasks.py
-      type: code
-    - path: src/ltx_service/api.py
-      type: code
-    - path: tests/test_phase1_api.py
+    - path: tests/test_gpu_server_project.py
       type: tests
   verification:
     - command: "python3 -m pytest"
-      result: "19 passed"
-    - command: "python3 -m compileall -q src tests"
+      result: "24 passed"
+    - command: "python3 -m compileall -q src tests gpu_server/worker_adapter"
+      result: passed
+    - command: "bash -n gpu_server/scripts/*.sh"
+      result: passed
+    - command: "docker compose --env-file /private/tmp/ltx-gpu.env -f gpu_server/docker-compose.yml config --quiet"
       result: passed
     - command: "git diff --check"
       result: passed
+    - command: "ssh 162.62.55.111 'cd ~/projects/ltx/gpu_server && ./scripts/healthcheck.sh'"
+      result: "control-plane healthy, executor gpu-worker healthy, worker_count=8"
+    - command: "ssh 162.62.55.111 'cd ~/projects/ltx/gpu_server && docker compose --env-file .env ps'"
+      result: "control-plane healthy; worker-0..worker-7 running"
+    - command: "ssh 162.62.55.111 admin workers query"
+      result: "8 workers registered; each reports comfyui_healthy=true and status=unhealthy with not_ready_reason=T204_ADAPTER_SKELETON"
+    - command: "ssh 162.62.55.111 'cd ~/projects/ltx/gpu_server && docker compose --env-file .env exec -T worker-0 nvidia-smi -L'"
+      result: "GPU 0: NVIDIA L20 visible inside worker container"
   issues:
-    - id: WORKER_ASSIGN_HTTP_NOT_IMPLEMENTED
-      description: "GpuWorkerExecutor 已提供 assignment 边界和失败分类，但尚未调用真实 Worker Adapter HTTP；属于 T-206。"
+    - id: PUBLIC_8000_NOT_REACHING_APP
+      description: "服务器内 127.0.0.1:8000/health 正常，0.0.0.0:8000 由 Docker proxy 监听，ufw inactive；但从本机访问 162.62.55.111:8000 未进入 uvicorn access log，需要在云安全组/公网入口放通或改用反向代理。"
+      severity: MAJOR
+      points_to_upstream: false
+      gate_candidate: G4
+    - id: REAL_LTX_EXECUTION_NOT_IMPLEMENTED
+      description: "Worker Adapter 只做注册、心跳和 ComfyUI 健康探测，尚未调用 ComfyUI /prompt 或回传结果；属于 T-206/T-207。"
       severity: MINOR
       points_to_upstream: false
       gate_candidate: G4
   assumptions:
-    - id: T203_SCOPE_ONLY
-      summary: "本次只实现 T-203，不实现 Worker Adapter、ComfyUI/LTX 真实执行、attempt event 回调或 gpu_server/。"
-    - id: BACKEND_DEFAULT
-      summary: "默认 LTX_EXECUTOR_BACKEND=mock-local；gpu-worker 需要注册 idle Worker 后才能派发。"
+    - id: T204_SCOPE_ONLY
+      summary: "本次完成同机部署骨架和 ComfyUI/LTXVideo 节点启动验证，不下载 LTX 2.3 模型、不执行真实视频生成。"
+    - id: WORKER_SAFETY_STATUS
+      summary: "远端 .env 保持 WORKER_STATUS=unhealthy，防止真实 Adapter 未完成前被 Dispatcher 领取任务。"
+    - id: SAME_HOST_CONTROL_PLANE
+      summary: "162.62.55.111 既运行 control-plane，也运行 8 个单 GPU worker。"

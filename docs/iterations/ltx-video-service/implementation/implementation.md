@@ -160,6 +160,18 @@
   - GPU Dockerfile 固定 ComfyUI/ComfyUI-LTXVideo 40 位 commit。
   - Compose 定义 8 个单 GPU Worker，并与 GPU index 一一对应。
   - 部署/健康脚本包含 GPU 可见性和 Docker GPU runtime fail-fast 检查。
+- **远端部署验证**:
+  - 目标机器: `162.62.55.111`, Ubuntu 22.04, 8 x NVIDIA L20, driver `575.51.03`, CUDA runtime `12.9`。
+  - 部署目录: `~/projects/ltx/gpu_server`。
+  - 已安装并配置 NVIDIA Container Toolkit，`docker run --rm --gpus 'device=0' nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` 通过。
+  - 同机启动 `control-plane` 和 `worker-0` 到 `worker-7`，`docker compose ps` 显示 control-plane healthy、8 个 worker running。
+  - `./scripts/healthcheck.sh` 返回 `/health` ok、executor `gpu-worker` healthy、`worker_count=8`。
+  - Admin workers 查询显示 8 个 worker 均已注册，且 capabilities 中 `comfyui_healthy=true`。
+  - `worker-0` 日志确认 ComfyUI 启动、ComfyUI-LTXVideo 自定义节点导入成功、容器内识别 `NVIDIA L20` 和 `torch 2.8.0+cu128`。
+  - `worker-0` 容器内 `nvidia-smi -L` 可见单张 `GPU 0: NVIDIA L20`，符合单 Worker 单卡绑定。
+- **远端残余风险**:
+  - 服务器内访问 `127.0.0.1:8000/health` 正常，`0.0.0.0:8000` 已监听且 `ufw` inactive；但从本机访问 `http://162.62.55.111:8000/health` 未进入 uvicorn access log，需要在云安全组/公网入口放通 TCP 8000，或后续改成 80/443 反向代理。
+  - 8 个 Worker 当前故意保持 `WORKER_STATUS=unhealthy`，`not_ready_reason=T204_ADAPTER_SKELETON`，避免真实 LTX 执行链路未完成前接收任务。
 - **遗留问题**:
   - 真实 LTX 2.3 workflow 与模型缓存下载属于 T-205。
   - Worker Adapter 调用 ComfyUI `/prompt`、轮询 history、回传结果属于 T-206。
