@@ -77,6 +77,35 @@ def test_sqlite_database_parent_directory_is_created(tmp_path):
     assert database_path.exists()
 
 
+def test_database_adds_worker_id_column_to_existing_attempts_table(tmp_path):
+    from sqlalchemy import create_engine, inspect, text
+
+    from ltx_service.config import Settings
+    from ltx_service.database import create_session_factory
+
+    database_path = tmp_path / "legacy.db"
+    engine = create_engine(f"sqlite:///{database_path}", future=True)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE task_attempts (
+                    id VARCHAR PRIMARY KEY,
+                    task_id VARCHAR NOT NULL,
+                    attempt_no INTEGER NOT NULL,
+                    executor_type VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL
+                )
+                """
+            )
+        )
+
+    create_session_factory(Settings(database_url=f"sqlite:///{database_path}", storage_root=tmp_path / "objects"))
+
+    columns = {column["name"] for column in inspect(create_engine(f"sqlite:///{database_path}", future=True)).get_columns("task_attempts")}
+    assert "worker_id" in columns
+
+
 def test_phase2_local_shared_storage_uses_adapter_uris_without_path_leaks(tmp_path):
     from ltx_service.app import create_app
     from ltx_service.config import Settings
@@ -295,6 +324,131 @@ def test_worker_registry_marks_stale_workers_unavailable(client):
 
     with client.app.state.ltx.session_factory() as session:
         assert list_available_workers(session) == []
+
+
+def test_gpu_worker_dispatch_keeps_task_queued_when_capacity_unavailable(tmp_path):
+    with _gpu_client(tmp_path) as client:
+        created = client.post("/v1/video-generations", json=_text_payload(prompt="needs capacity"), headers=AUTH)
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is False
+        assert dispatched.json()["reason"] == "CAPACITY_UNAVAILABLE"
+
+        status = client.get(f"/v1/video-generations/{task_id}", headers=AUTH).json()
+        assert status["status"] == "queued"
+        assert status["error"] == "CAPACITY_UNAVAILABLE"
+
+        admin_tasks = client.get("/admin/tasks", params={"error_code": "CAPACITY_UNAVAILABLE"}, headers=ADMIN)
+        assert admin_tasks.status_code == 200
+        assert [item["task_id"] for item in admin_tasks.json()] == [task_id]
+
+        metrics = client.get("/metrics").text
+        assert 'ltx_task_failures_total{error_code="CAPACITY_UNAVAILABLE"} 1' in metrics
+
+
+def test_gpu_worker_dispatch_assigns_matching_idle_worker_once(tmp_path):
+    with _gpu_client(tmp_path) as client:
+        quality_worker = client.post(
+            "/internal/workers/register",
+            json=_worker_payload(0, profiles=["quality"]),
+            headers=WORKER,
+        ).json()
+        fast_worker = client.post(
+            "/internal/workers/register",
+            json=_worker_payload(1, profiles=["fast"]),
+            headers=WORKER,
+        ).json()
+
+        created = client.post("/v1/video-generations", json=_text_payload(prompt="dispatch gpu"), headers=AUTH)
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is True
+        attempt_id = dispatched.json()["attempt_id"]
+        assert dispatched.json()["worker_id"] == fast_worker["worker_id"]
+
+        duplicate = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert duplicate.status_code == 200
+        assert duplicate.json()["dispatched"] is False
+
+        status = client.get(f"/v1/video-generations/{task_id}", headers=AUTH).json()
+        assert status["status"] == "running"
+        assert status["attempt_count"] == 1
+
+        mock_complete = client.post("/internal/dispatch/complete-running", headers=ADMIN)
+        assert mock_complete.status_code == 200
+        assert mock_complete.json()["completed"] is False
+        still_running = client.get(f"/v1/video-generations/{task_id}", headers=AUTH).json()
+        assert still_running["status"] == "running"
+
+        with client.app.state.ltx.session_factory() as session:
+            from ltx_service.models import TaskAttempt
+
+            attempts = session.query(TaskAttempt).filter_by(task_id=task_id).all()
+            assert len(attempts) == 1
+            assert attempts[0].id == attempt_id
+            assert attempts[0].worker_id == fast_worker["worker_id"]
+
+        workers = client.get("/admin/workers", headers=ADMIN).json()["workers"]
+        by_id = {item["worker_id"]: item for item in workers}
+        assert by_id[fast_worker["worker_id"]]["status"] == "busy"
+        assert by_id[fast_worker["worker_id"]]["current_attempt_id"] == attempt_id
+        assert by_id[quality_worker["worker_id"]]["status"] == "idle"
+
+
+def test_gpu_worker_dispatch_retryable_assign_failure_requeues(tmp_path):
+    with _gpu_client(tmp_path) as client:
+        worker = client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER).json()
+        created = client.post(
+            "/v1/video-generations",
+            json=_text_payload(prompt="ASSIGN_TRANSIENT then retry"),
+            headers=AUTH,
+        )
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is False
+        assert dispatched.json()["reason"] == "COMFYUI_PROMPT_FAILED"
+        assert dispatched.json()["attempt_id"].startswith("att_")
+
+        status = client.get(f"/v1/video-generations/{task_id}", headers=AUTH).json()
+        assert status["status"] == "queued"
+        assert status["attempt_count"] == 1
+        assert status["error"] == "COMFYUI_PROMPT_FAILED"
+
+        workers = client.get("/admin/workers", headers=ADMIN).json()["workers"]
+        assert workers[0]["worker_id"] == worker["worker_id"]
+        assert workers[0]["status"] == "idle"
+        assert workers[0]["current_attempt_id"] is None
+
+
+def test_gpu_worker_dispatch_non_retryable_assign_failure_fails_task(tmp_path):
+    with _gpu_client(tmp_path) as client:
+        client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER)
+        created = client.post(
+            "/v1/video-generations",
+            json=_text_payload(prompt="ASSIGN_INVALID"),
+            headers=AUTH,
+        )
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is False
+        assert dispatched.json()["reason"] == "REQUEST_INVALID_PARAMETER"
+
+        status = client.get(f"/v1/video-generations/{task_id}", headers=AUTH).json()
+        assert status["status"] == "failed"
+        assert status["attempt_count"] == 1
+        assert status["error"] == "REQUEST_INVALID_PARAMETER"
+
+        usage = client.get("/admin/usage", headers=ADMIN).json()
+        assert usage[0]["failed_count"] == 1
+        assert usage[0]["attempt_count"] == 1
 
 
 def test_text_to_video_success_result_usage_and_metrics(client):
@@ -548,7 +702,7 @@ def _image_payload(image_asset_id: str | None = None) -> dict:
     return payload
 
 
-def _worker_payload(gpu_index: int) -> dict:
+def _worker_payload(gpu_index: int, profiles: list[str] | None = None) -> dict:
     return {
         "node_name": "gpu-host-01",
         "worker_name": f"gpu-host-01-gpu-{gpu_index}",
@@ -558,7 +712,7 @@ def _worker_payload(gpu_index: int) -> dict:
         "queue_depth": 0,
         "capabilities": {
             "modes": ["text_to_video", "image_to_video"],
-            "profiles": ["fast"],
+            "profiles": profiles or ["fast"],
             "ltx_profile": "distilled_single_stage",
         },
         "metrics_url": f"http://gpu-host-01:{9100 + gpu_index}/metrics",
@@ -586,3 +740,18 @@ def _add_api_key(client: TestClient, raw_key: str, status: str = "active", quota
 def _assert_error(response, status_code: int, code: str) -> None:
     assert response.status_code == status_code
     assert response.json()["detail"]["error"]["code"] == code
+
+
+def _gpu_client(tmp_path):
+    from ltx_service.app import create_app
+    from ltx_service.config import Settings
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'gpu.db'}",
+        storage_root=tmp_path / "objects",
+        executor_backend="gpu-worker",
+        bootstrap_api_key=API_KEY,
+        admin_token=ADMIN_TOKEN,
+        worker_token=WORKER_TOKEN,
+    )
+    return TestClient(create_app(settings))

@@ -13,6 +13,7 @@ export LTX_STORAGE_ROOT="./.data/object-storage"
 export LTX_BOOTSTRAP_API_KEY="<dev-api-key>"
 export LTX_ADMIN_TOKEN="<dev-admin-token>"
 export LTX_WORKER_TOKEN="<dev-worker-token>"
+export LTX_EXECUTOR_BACKEND="mock-local"
 python3 -m uvicorn ltx_service.app:app --host 0.0.0.0 --port 8000
 ```
 
@@ -61,5 +62,7 @@ API Key 无效：确认请求头是 `Authorization: Bearer <key>`，并确认服
 Admin 403：确认请求头是 `X-Admin-Token: <token>`，并与 `LTX_ADMIN_TOKEN` 一致。
 
 Worker 401/403：确认 GPU Worker 请求头是 `X-Worker-Token: <token>`，并与 `LTX_WORKER_TOKEN` 一致。
+
+GPU Worker 模式不派发：确认 `LTX_EXECUTOR_BACKEND=gpu-worker`，并且已有 status 为 `idle`、capabilities 匹配 mode/profile、queue_depth 为 0 的 Worker 注册。
 
 executor 不可用：Phase 1 使用 `MockLocalExecutor`。如果任务长时间停留 queued，先检查是否调用了 `/internal/dispatch/run-once` 和 `/internal/dispatch/complete-running`。

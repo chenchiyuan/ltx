@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import TaskAttempt, VideoTask
+from .models import GpuWorker, TaskAttempt, VideoTask
 
 
 @dataclass(frozen=True)
@@ -15,10 +15,20 @@ class ExecutorResult:
     runtime_seconds: int = 1
 
 
+@dataclass(frozen=True)
+class AssignmentResult:
+    status: str
+    error_class: str | None = None
+    error_code: str | None = None
+
+
 class ExecutorAdapter:
     executor_type = "base"
 
     def execute(self, task: VideoTask, attempt: TaskAttempt) -> ExecutorResult:
+        raise NotImplementedError
+
+    def assign(self, task: VideoTask, attempt: TaskAttempt, worker: GpuWorker) -> AssignmentResult:
         raise NotImplementedError
 
     def health(self) -> dict:
@@ -46,3 +56,31 @@ class MockLocalExecutor(ExecutorAdapter):
             f"attempt={attempt.attempt_no}\n"
         ).encode("utf-8")
         return ExecutorResult(status="succeeded", output_bytes=data, runtime_seconds=1)
+
+
+class GpuWorkerExecutor(ExecutorAdapter):
+    executor_type = "gpu-worker"
+
+    def execute(self, task: VideoTask, attempt: TaskAttempt) -> ExecutorResult:
+        return ExecutorResult(status="failed", error_class="worker_crash", error_code="GPU_WORKER_ASYNC_ONLY")
+
+    def assign(self, task: VideoTask, attempt: TaskAttempt, worker: GpuWorker) -> AssignmentResult:
+        prompt = str(task.request_params.get("prompt", "")).upper()
+        if "ASSIGN_TRANSIENT" in prompt:
+            return AssignmentResult(status="failed", error_class="transient", error_code="COMFYUI_PROMPT_FAILED")
+        if "ASSIGN_INVALID" in prompt:
+            return AssignmentResult(status="failed", error_class="invalid_input", error_code="REQUEST_INVALID_PARAMETER")
+        if "ASSIGN_WORKER_CRASH" in prompt:
+            return AssignmentResult(status="failed", error_class="worker_crash", error_code="WORKER_CRASH")
+        return AssignmentResult(status="accepted")
+
+    def health(self) -> dict:
+        return {"executor_type": self.executor_type, "healthy": True, "mode": "async-assignment"}
+
+
+def build_executor(backend: str) -> ExecutorAdapter:
+    if backend == "mock-local":
+        return MockLocalExecutor()
+    if backend == "gpu-worker":
+        return GpuWorkerExecutor()
+    raise RuntimeError(f"Unsupported executor backend: {backend}")

@@ -55,6 +55,23 @@ T-202 禁止实现：
 
 - queued task 派发到 GPU Worker、Worker Adapter 调用 ComfyUI、真实 GPU E2E、`gpu_server/` 部署。
 
+## Phase 2 T-203 范围
+
+T-203 只实现 GPU Dispatcher 与 ExecutorAdapter 派发边界：
+
+- `Settings.executor_backend` 支持 `mock-local` 和 `gpu-worker`。
+- `mock-local` 保持 Phase 1 同步 mock 执行路径不变。
+- `gpu-worker` 模式下，Dispatcher 从 `list_available_workers(...)` 选择 capabilities 匹配 mode/profile 的 idle Worker。
+- 派发成功后 task 进入 `running`，attempt 记录 `worker_id`，Worker 标记 busy 并记录 current_attempt_id。
+- 无可用 Worker 时 task 保持 `queued`，error_code 为 `CAPACITY_UNAVAILABLE`，Admin/Metrics 可见。
+- Worker assign 失败时 attempt 标记 failed；retryable 错误重新 queued，non-retryable 错误进入 failed 并记录 usage。
+- 同一 task 已从 queued 转出后，再次 dispatch 不会创建第二个 attempt。
+- `/internal/dispatch/complete-running` 只完成 `mock-local` attempt；`gpu-worker` attempt 等待后续 Worker event 回调。
+
+T-203 禁止实现：
+
+- 真实 Worker Adapter HTTP 调用、ComfyUI/LTX 执行、attempt event 回调、`gpu_server/` 部署。
+
 ## 技术栈
 
 - Python 3.12
@@ -80,6 +97,7 @@ T-202 禁止实现：
 | App Composition | `src/ltx_service/app.py` |
 | Runtime Config | `src/ltx_service/config.py` |
 | Worker Registry | `src/ltx_service/worker_registry.py`, `src/ltx_service/models.py`, `src/ltx_service/api.py` |
+| GPU Dispatcher / ExecutorAdapter | `src/ltx_service/tasks.py`, `src/ltx_service/executor.py` |
 
 ## 状态机
 
@@ -158,6 +176,13 @@ Internal/Admin:
 | T-202 stale heartbeat | last heartbeat older than timeout | Worker marked offline and unavailable | F-007 |
 | T-202 worker token missing | register without `X-Worker-Token` | 401 `WORKER_TOKEN_REQUIRED` | F-007 |
 | T-202 worker token invalid | register with wrong token | 403 `WORKER_FORBIDDEN` | F-007 |
+| T-203 gpu-worker capacity unavailable | gpu-worker backend with queued task and no idle worker | task remains queued, reason `CAPACITY_UNAVAILABLE`, Admin/Metrics visible | F-004/F-007 |
+| T-203 matching worker dispatch | fast task + mixed worker profiles | matching worker busy, attempt records worker_id, task running | F-004/F-007 |
+| T-203 idempotent dispatch | dispatch same task twice | second dispatch creates no second attempt | F-009 |
+| T-203 retryable assign failure | assign transient failure | attempt failed, task requeued | F-009 |
+| T-203 non-retryable assign failure | assign invalid failure | task failed and usage ledger records failed attempt | F-009/F-010 |
+| T-203 legacy DB migration | existing task_attempts table lacks worker_id | startup adds nullable worker_id column | F-009 |
+| T-203 mock completion guard | gpu-worker task is running, call complete-running | returns completed=false and task remains running | F-009 |
 
 ## 还原检查清单
 
@@ -174,6 +199,10 @@ Internal/Admin:
 - [ ] Worker register/heartbeat 内部 API 使用 service token。
 - [ ] Admin workers 输出可用于观察 8 Worker 状态。
 - [ ] Stale Worker 不会出现在可用 Worker 查询中。
+- [ ] Executor backend 可配置为 `mock-local` 或 `gpu-worker`。
+- [ ] gpu-worker dispatch 只选择 capabilities 匹配的 idle Worker。
+- [ ] GPU attempt 记录 worker_id，且同一 task 不会被重复派发。
+- [ ] 容量不足和 assign 失败路径可被 Admin/Metrics 观察。
 - [ ] Workflow 保存 source 和 API JSON。
 - [ ] Usage ledger 与 task completion 同步写入。
 - [ ] Tests 覆盖正常路径和异常路径。

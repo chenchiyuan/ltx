@@ -97,6 +97,7 @@ class TaskAttempt(Base):
     task_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
     executor_type: Mapped[str] = mapped_column(String, nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="running")
     error_class: Mapped[str | None] = mapped_column(String, nullable=True)
     actual_runtime_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)

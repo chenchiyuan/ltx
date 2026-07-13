@@ -88,6 +88,43 @@
   - Dispatcher 尚未使用 `list_available_workers(...)` 派发任务；属于 T-203。
   - `gpu_server/` Worker 进程尚未实现注册调用；属于 T-204/T-207。
 
+### T-203: GPU Dispatcher 与 ExecutorAdapter 派发改造
+
+- **状态**: 已完成
+- **调研结论**:
+  - `tasks.py` 已集中处理 queued/running/attempt 状态，适合在同一边界内加入 gpu-worker dispatch 分支。
+  - `executor.py` 已有 `ExecutorAdapter` 和 `MockLocalExecutor`，可扩展 `GpuWorkerExecutor.assign(...)` 边界而不改变 Phase 1 mock 执行。
+  - `worker_registry.py` 已提供 `list_available_workers(...)`，可直接复用 capability 匹配和 stale worker 摘除逻辑。
+  - `api.py` 的 `/internal/dispatch/run-once` 是现有派发入口，保持 `dispatched` 字段兼容即可。
+- **实现文件**:
+  - `src/ltx_service/config.py`
+  - `src/ltx_service/executor.py`
+  - `src/ltx_service/app.py`
+  - `src/ltx_service/database.py`
+  - `src/ltx_service/models.py`
+  - `src/ltx_service/tasks.py`
+  - `src/ltx_service/api.py`
+  - `tests/test_phase1_api.py`
+  - `docs/iterations/ltx-video-service/implementation/protocol.md`
+  - `docs/iterations/ltx-video-service/implementation/implementation.md`
+- **关键决策**:
+  - 新增 `LTX_EXECUTOR_BACKEND=mock-local|gpu-worker`，默认保持 `mock-local`。
+  - `gpu-worker` 首版实现 async assignment 边界，不做真实 HTTP Worker Adapter 调用；真实调用归 T-206。
+  - `DispatchOutcome` 保留 API 兼容的 `dispatched` 字段，并补充 reason、attempt_id、worker_id。
+  - `task_attempts.worker_id` 是 nullable 字段；为已有 SQLite 表增加最小兼容迁移。
+  - `/internal/dispatch/complete-running` 只完成 `mock-local` attempt，避免误终止等待 Worker event 的 gpu-worker attempt。
+- **验收覆盖**:
+  - gpu-worker 无可用 Worker 时 task 保持 queued，`CAPACITY_UNAVAILABLE` 在 Admin/Metrics 可见。
+  - mixed profiles 下只选择 capabilities 匹配的 idle Worker。
+  - 派发成功后 attempt 记录 worker_id，Worker 进入 busy/current_attempt 状态。
+  - 同一 task 已转出 queued 后，重复 dispatch 不创建第二个 attempt。
+  - gpu-worker running attempt 调用 mock complete endpoint 时保持 running。
+  - assign retryable failure 重新 queued；non-retryable failure 进入 failed 并记录 usage。
+  - 旧 SQLite `task_attempts` 表缺少 `worker_id` 时启动会补列。
+- **遗留问题**:
+  - `GpuWorkerExecutor.assign(...)` 仍是控制面边界实现，不调用真实 Worker Adapter HTTP；属于 T-206。
+  - Worker events 回调和真实 GPU completion 尚未实现；属于 T-206/T-209。
+
 ## Task 还原
 
 ### T-001: Phase 1 环境边界与配置基线

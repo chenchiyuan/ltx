@@ -26,6 +26,7 @@ export LTX_STORAGE_ROOT="./.data/object-storage"
 export LTX_BOOTSTRAP_API_KEY="dev-api-key"
 export LTX_ADMIN_TOKEN="dev-admin-token"
 export LTX_WORKER_TOKEN="dev-worker-token"
+export LTX_EXECUTOR_BACKEND="mock-local"
 python3 -m uvicorn ltx_service.app:app --host 127.0.0.1 --port 8000
 ```
 

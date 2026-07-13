@@ -1,7 +1,7 @@
 completion_signal:
   skill: pb-v1-implementing
   status: completed
-  scope: "Phase 2 T-202 Worker Registry data model and internal APIs"
+  scope: "Phase 2 T-203 GPU Dispatcher and ExecutorAdapter dispatch boundary"
   artifacts:
     - path: docs/iterations/ltx-video-service/implementation/protocol.md
       type: protocol
@@ -9,15 +9,15 @@ completion_signal:
       type: implementation-record
     - path: src/ltx_service/config.py
       type: code
-    - path: src/ltx_service/dependencies.py
+    - path: src/ltx_service/executor.py
       type: code
     - path: src/ltx_service/app.py
       type: code
+    - path: src/ltx_service/database.py
+      type: code
     - path: src/ltx_service/models.py
       type: code
-    - path: src/ltx_service/schemas.py
-      type: code
-    - path: src/ltx_service/worker_registry.py
+    - path: src/ltx_service/tasks.py
       type: code
     - path: src/ltx_service/api.py
       type: code
@@ -25,19 +25,19 @@ completion_signal:
       type: tests
   verification:
     - command: "python3 -m pytest"
-      result: "14 passed"
+      result: "19 passed"
     - command: "python3 -m compileall -q src tests"
       result: passed
     - command: "git diff --check"
       result: passed
   issues:
-    - id: DISPATCHER_NOT_BOUND_TO_WORKER_REGISTRY
-      description: "Worker Registry 已提供 list_available_workers(...)，但 Dispatcher 尚未使用该查询派发 GPU Worker；属于 T-203。"
+    - id: WORKER_ASSIGN_HTTP_NOT_IMPLEMENTED
+      description: "GpuWorkerExecutor 已提供 assignment 边界和失败分类，但尚未调用真实 Worker Adapter HTTP；属于 T-206。"
       severity: MINOR
       points_to_upstream: false
       gate_candidate: G4
   assumptions:
-    - id: T202_SCOPE_ONLY
-      summary: "本次只实现 T-202，不实现 GPU Dispatcher、Worker Adapter、ComfyUI/LTX 真实执行或 gpu_server/。"
-    - id: WORKER_TOKEN_INTERNAL
-      summary: "Worker 内部 API 使用 X-Worker-Token，与 Admin token 分离。"
+    - id: T203_SCOPE_ONLY
+      summary: "本次只实现 T-203，不实现 Worker Adapter、ComfyUI/LTX 真实执行、attempt event 回调或 gpu_server/。"
+    - id: BACKEND_DEFAULT
+      summary: "默认 LTX_EXECUTOR_BACKEND=mock-local；gpu-worker 需要注册 idle Worker 后才能派发。"

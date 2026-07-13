@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -11,11 +12,20 @@ from .ids import new_id
 from .models import ApiKey, Asset, TaskAttempt, VideoTask
 from .storage import ObjectStorageAdapter
 from .usage import record_usage, summarize_usage_by_api_key
+from .worker_registry import list_available_workers
 from .workflows import get_published_workflow
 
 RETRYABLE_ERRORS = {"transient", "worker_crash"}
 NON_RETRYABLE_ERRORS = {"invalid_input", "policy_rejected"}
 MAX_ATTEMPTS = 3
+
+
+@dataclass(frozen=True)
+class DispatchOutcome:
+    dispatched: bool
+    attempt: TaskAttempt | None = None
+    reason: str | None = None
+    worker_id: str | None = None
 
 
 def create_video_task(
@@ -67,10 +77,12 @@ def create_video_task(
     return task, profile.estimated_gpu_seconds
 
 
-def dispatch_next(session: Session, executor: ExecutorAdapter) -> TaskAttempt | None:
+def dispatch_next(session: Session, executor: ExecutorAdapter) -> DispatchOutcome:
     task = session.scalar(select(VideoTask).where(VideoTask.status == "queued").order_by(VideoTask.created_at.asc()))
     if not task:
-        return None
+        return DispatchOutcome(dispatched=False)
+    if executor.executor_type == "gpu-worker":
+        return _dispatch_to_gpu_worker(session, executor, task)
     task.status = "running"
     task.progress_stage = "running"
     task.progress_percent = 10
@@ -85,10 +97,78 @@ def dispatch_next(session: Session, executor: ExecutorAdapter) -> TaskAttempt | 
     session.add(attempt)
     session.commit()
     session.refresh(attempt)
-    return attempt
+    return DispatchOutcome(dispatched=True, attempt=attempt)
+
+
+def _dispatch_to_gpu_worker(session: Session, executor: ExecutorAdapter, task: VideoTask) -> DispatchOutcome:
+    workers = list_available_workers(session, mode=task.mode, profile=task.profile)
+    if not workers:
+        task.error_code = "CAPACITY_UNAVAILABLE"
+        task.progress_stage = "queued"
+        task.progress_percent = 0
+        session.commit()
+        return DispatchOutcome(dispatched=False, reason="CAPACITY_UNAVAILABLE")
+
+    worker = workers[0]
+    task.status = "dispatching"
+    task.progress_stage = "dispatching"
+    task.progress_percent = 5
+    task.error_code = None
+    task.attempt_count += 1
+    attempt = TaskAttempt(
+        id=new_id("att"),
+        task_id=task.id,
+        attempt_no=task.attempt_count,
+        executor_type=executor.executor_type,
+        worker_id=worker.id,
+        status="assigned",
+    )
+    session.add(attempt)
+    session.flush()
+
+    assignment = executor.assign(task, attempt, worker)
+    if assignment.status == "accepted":
+        attempt.status = "running"
+        task.status = "running"
+        task.progress_stage = "running"
+        task.progress_percent = 10
+        worker.status = "busy"
+        worker.queue_depth = 1
+        worker.current_attempt_id = attempt.id
+        session.commit()
+        session.refresh(attempt)
+        return DispatchOutcome(dispatched=True, attempt=attempt, worker_id=worker.id)
+
+    attempt.status = "failed"
+    attempt.error_class = assignment.error_class
+    attempt.finished_at = datetime.now(UTC)
+    task.error_code = assignment.error_code
+    worker.status = "idle"
+    worker.queue_depth = 0
+    worker.current_attempt_id = None
+    if _should_retry(assignment.error_class, task.attempt_count):
+        task.status = "queued"
+        task.progress_stage = "queued"
+        task.progress_percent = 0
+    else:
+        task.status = "failed"
+        task.progress_stage = "failed"
+        task.progress_percent = 100
+        task.completed_at = datetime.now(UTC)
+        record_usage(session, task, "failed", 0)
+    session.commit()
+    session.refresh(attempt)
+    return DispatchOutcome(
+        dispatched=False,
+        attempt=attempt,
+        reason=assignment.error_code,
+        worker_id=worker.id,
+    )
 
 
 def complete_running(session: Session, storage: ObjectStorageAdapter, executor: ExecutorAdapter) -> VideoTask | None:
+    if executor.executor_type != "mock-local":
+        return None
     attempt = session.scalar(select(TaskAttempt).where(TaskAttempt.status == "running").order_by(TaskAttempt.started_at.asc()))
     if not attempt:
         return None

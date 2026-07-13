@@ -196,10 +196,16 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
         _: None = Depends(admin_auth),
         session: Session = Depends(get_session),
     ):
-        attempt = dispatch_next(session, executor)
-        if not attempt:
-            return {"dispatched": False}
-        return {"dispatched": True, "attempt_id": attempt.id, "task_id": attempt.task_id}
+        outcome = dispatch_next(session, executor)
+        if not outcome.attempt:
+            return {"dispatched": False, "reason": outcome.reason}
+        return {
+            "dispatched": outcome.dispatched,
+            "reason": outcome.reason,
+            "attempt_id": outcome.attempt.id,
+            "task_id": outcome.attempt.task_id,
+            "worker_id": outcome.worker_id,
+        }
 
     @router.post("/internal/dispatch/complete-running")
     def internal_complete_running(

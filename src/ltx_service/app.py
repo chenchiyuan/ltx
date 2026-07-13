@@ -7,7 +7,7 @@ from .bootstrap import seed_defaults
 from .config import Settings
 from .database import create_session_factory
 from .dependencies import AppState, make_get_session
-from .executor import MockLocalExecutor
+from .executor import build_executor
 from .storage import build_storage_adapter
 
 
@@ -19,7 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         seed_defaults(session, settings.bootstrap_api_key)
 
     storage = build_storage_adapter(settings)
-    executor = MockLocalExecutor()
+    executor = build_executor(settings.executor_backend)
     state = AppState(
         session_factory=session_factory,
         storage=storage,
