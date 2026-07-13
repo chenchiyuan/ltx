@@ -39,3 +39,7 @@ curl -s http://127.0.0.1:8000/health
 ```
 
 更多上下文见 `docs/iterations/ltx-video-service/`。
+
+## Phase 2 GPU 服务器
+
+单机 GPU 测试部署入口位于 `gpu_server/`。当前 T-204 提供同机 control plane + GPU worker 容器骨架；真实 LTX workflow 和 ComfyUI 执行适配在后续 T-205/T-206 接入。

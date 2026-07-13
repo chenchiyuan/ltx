@@ -1,0 +1,222 @@
+name: ltx-gpu
+
+x-worker-build: &worker_build
+  context: ..
+  dockerfile: gpu_server/Dockerfile
+  args:
+    COMFYUI_REPO: ${COMFYUI_REPO:-https://github.com/comfyanonymous/ComfyUI.git}
+    COMFYUI_REF: ${COMFYUI_REF:-5697b970173bc0c16a05c30d509d0911f2b84822}
+    LTXVIDEO_REPO: ${LTXVIDEO_REPO:-https://github.com/Lightricks/ComfyUI-LTXVideo.git}
+    LTXVIDEO_REF: ${LTXVIDEO_REF:-aceeae9635f6d493f2893ba3c411a1c36031788a}
+
+x-worker-env: &worker_env
+  CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://control-plane:8000}
+  WORKER_TOKEN: ${WORKER_TOKEN:?WORKER_TOKEN is required}
+  NODE_NAME: ${NODE_NAME:-ltx-gpu-001}
+  WORKER_STATUS: ${WORKER_STATUS:-unhealthy}
+  WORKER_NOT_READY_REASON: ${WORKER_NOT_READY_REASON:-T204_ADAPTER_SKELETON}
+  HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-15}
+  START_COMFYUI: ${START_COMFYUI:-true}
+  COMFYUI_HOST: ${COMFYUI_HOST:-127.0.0.1}
+  COMFYUI_PORT: ${COMFYUI_PORT:-8188}
+  MODEL_DIR: /models/ltx
+  STORAGE_DIR: /data/ltx-storage
+
+x-worker-volumes: &worker_volumes
+  - ${MODEL_DIR:-/opt/ltx/models}:/models/ltx
+  - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
+
+services:
+  control-plane:
+    build:
+      context: ..
+      dockerfile: gpu_server/control.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      LTX_DATABASE_URL: sqlite:////app/.data/ltx.db
+      LTX_STORAGE_BACKEND: ${STORAGE_BACKEND:-local_shared}
+      LTX_STORAGE_ROOT: /data/ltx-storage
+      LTX_BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:?BOOTSTRAP_API_KEY is required}
+      LTX_ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required}
+      LTX_WORKER_TOKEN: ${WORKER_TOKEN:?WORKER_TOKEN is required}
+      LTX_EXECUTOR_BACKEND: ${EXECUTOR_BACKEND:-gpu-worker}
+      LTX_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+      LTX_REQUIRE_ENV: "true"
+    volumes:
+      - ${APP_DATA_DIR:-/opt/ltx/app-data}:/app/.data
+      - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+
+  worker-0:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "0"
+      WORKER_SLOT: "0"
+      WORKER_NAME: ltx-worker-0
+
+  worker-1:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "1"
+      WORKER_SLOT: "1"
+      WORKER_NAME: ltx-worker-1
+
+  worker-2:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["2"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "2"
+      WORKER_SLOT: "2"
+      WORKER_NAME: ltx-worker-2
+
+  worker-3:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["3"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "3"
+      WORKER_SLOT: "3"
+      WORKER_NAME: ltx-worker-3
+
+  worker-4:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["4"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "4"
+      WORKER_SLOT: "4"
+      WORKER_NAME: ltx-worker-4
+
+  worker-5:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["5"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "5"
+      WORKER_SLOT: "5"
+      WORKER_NAME: ltx-worker-5
+
+  worker-6:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["6"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "6"
+      WORKER_SLOT: "6"
+      WORKER_NAME: ltx-worker-6
+
+  worker-7:
+    profiles: ["workers"]
+    build: *worker_build
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    volumes: *worker_volumes
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["7"]
+              capabilities: ["gpu"]
+    environment:
+      <<: *worker_env
+      GPU_INDEX: "7"
+      WORKER_SLOT: "7"
+      WORKER_NAME: ltx-worker-7

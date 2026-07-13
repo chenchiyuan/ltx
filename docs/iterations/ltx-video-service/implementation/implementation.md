@@ -125,6 +125,45 @@
   - `GpuWorkerExecutor.assign(...)` 仍是控制面边界实现，不调用真实 Worker Adapter HTTP；属于 T-206。
   - Worker events 回调和真实 GPU completion 尚未实现；属于 T-206/T-209。
 
+### T-204: `gpu_server/` 部署子项目骨架
+
+- **状态**: 已完成
+- **调研结论**:
+  - 仓库已有 FastAPI control plane 启动入口，可用 `control.Dockerfile` 在 GPU 服务器同机部署。
+  - Phase 2 规划要求 GPU 部署入口独立在 `gpu_server/`，不能把 GPU 脚本散落到根目录。
+  - 目标测试机 `162.62.55.111` 是 Ubuntu 22.04，8 张 NVIDIA L20 46GB，Docker/Compose 已安装，但需验证 Docker GPU runtime。
+  - ComfyUI 当前 HEAD 固定为 `5697b970173bc0c16a05c30d509d0911f2b84822`；ComfyUI-LTXVideo 当前 master 固定为 `aceeae9635f6d493f2893ba3c411a1c36031788a`。
+- **实现文件**:
+  - `gpu_server/README.md`
+  - `gpu_server/.env.example`
+  - `gpu_server/control.Dockerfile`
+  - `gpu_server/Dockerfile`
+  - `gpu_server/docker-compose.yml`
+  - `gpu_server/scripts/deploy.sh`
+  - `gpu_server/scripts/healthcheck.sh`
+  - `gpu_server/scripts/download_models.sh`
+  - `gpu_server/scripts/container_entrypoint.sh`
+  - `gpu_server/worker_adapter/runtime.py`
+  - `gpu_server/config/worker.yaml`
+  - `gpu_server/workflows/README.md`
+  - `tests/test_gpu_server_project.py`
+- **关键决策**:
+  - Compose 同时定义 `control-plane` 和 `worker-0` 到 `worker-7`，满足“同一台机器既对外提供接口，也是 GPU 服务器”的测试部署形态。
+  - Worker service 使用 Docker device reservation，每个 Worker 固定唯一 `device_ids`，保持单任务单卡的容量单位。
+  - T-204 的 Worker Adapter 只做 register/heartbeat 骨架，默认 `WORKER_STATUS=unhealthy`，避免真实 LTX 执行未完成前被 Dispatcher 派发任务。
+  - `deploy.sh` 在启动 Worker 前执行 `docker run --rm --gpus`，如果 NVIDIA Container Toolkit 未配置会快速失败。
+  - `download_models.sh` 当前只创建模型目录并输出 T-205 提示，不伪造模型下载清单。
+- **验收覆盖**:
+  - `gpu_server/` 必需文件存在。
+  - `.env.example` 包含 Phase 2 部署契约变量。
+  - GPU Dockerfile 固定 ComfyUI/ComfyUI-LTXVideo 40 位 commit。
+  - Compose 定义 8 个单 GPU Worker，并与 GPU index 一一对应。
+  - 部署/健康脚本包含 GPU 可见性和 Docker GPU runtime fail-fast 检查。
+- **遗留问题**:
+  - 真实 LTX 2.3 workflow 与模型缓存下载属于 T-205。
+  - Worker Adapter 调用 ComfyUI `/prompt`、轮询 history、回传结果属于 T-206。
+  - Worker 注册为 `idle` 并可承接任务属于 T-207/T-209 验收。
+
 ## Task 还原
 
 ### T-001: Phase 1 环境边界与配置基线

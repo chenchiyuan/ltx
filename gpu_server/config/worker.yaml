@@ -1,0 +1,10 @@
+node_name: ltx-gpu-001
+default_status: unhealthy
+capabilities:
+  modes:
+    - text_to_video
+    - image_to_video
+  profiles:
+    - fast
+  model: ltx-2.3
+  execution: comfyui

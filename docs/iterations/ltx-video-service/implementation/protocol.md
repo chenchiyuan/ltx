@@ -72,6 +72,23 @@ T-203 禁止实现：
 
 - 真实 Worker Adapter HTTP 调用、ComfyUI/LTX 执行、attempt event 回调、`gpu_server/` 部署。
 
+## Phase 2 T-204 范围
+
+T-204 只实现 `gpu_server/` 部署子项目骨架：
+
+- `gpu_server/README.md` 说明 GPU 服务器前置条件、配置项、部署命令、健康检查和卸载方式。
+- `gpu_server/.env.example` 包含 `CONTROL_PLANE_URL`、`WORKER_COUNT`、`GPU_INDICES`、`MODEL_DIR`、`STORAGE_DIR`、`WORKER_TOKEN`。
+- `gpu_server/Dockerfile` 使用 CUDA 基础镜像，并固定 ComfyUI 与 ComfyUI-LTXVideo 的 git commit。
+- `gpu_server/control.Dockerfile` 允许同机部署 FastAPI control plane。
+- `gpu_server/docker-compose.yml` 定义 control plane 和 8 个单 GPU Worker service，每个 Worker 固定唯一 `device_ids`。
+- `scripts/deploy.sh` 在部署前检查 `nvidia-smi`、Docker Compose 和 Docker GPU runtime。
+- `scripts/healthcheck.sh` 检查 GPU 可见性、control plane `/health` 和 Admin Worker 列表。
+- `worker_adapter/runtime.py` 只做注册/心跳骨架，默认 `WORKER_STATUS=unhealthy`，避免真实 LTX Adapter 完成前被 Dispatcher 派发任务。
+
+T-204 禁止实现：
+
+- LTX 2.3 真实 Workflow API JSON、模型下载清单、ComfyUI `/prompt` 调用、attempt event 回调、真实视频生成。
+
 ## 技术栈
 
 - Python 3.12
@@ -98,6 +115,7 @@ T-203 禁止实现：
 | Runtime Config | `src/ltx_service/config.py` |
 | Worker Registry | `src/ltx_service/worker_registry.py`, `src/ltx_service/models.py`, `src/ltx_service/api.py` |
 | GPU Dispatcher / ExecutorAdapter | `src/ltx_service/tasks.py`, `src/ltx_service/executor.py` |
+| GPU Server 部署子项目 | `gpu_server/` |
 
 ## 状态机
 
@@ -183,6 +201,11 @@ Internal/Admin:
 | T-203 non-retryable assign failure | assign invalid failure | task failed and usage ledger records failed attempt | F-009/F-010 |
 | T-203 legacy DB migration | existing task_attempts table lacks worker_id | startup adds nullable worker_id column | F-009 |
 | T-203 mock completion guard | gpu-worker task is running, call complete-running | returns completed=false and task remains running | F-009 |
+| T-204 required files | `gpu_server/` exists | README/env/Dockerfile/compose/scripts/worker_adapter present | F-005/F-007 |
+| T-204 env contract | `.env.example` | required Phase 2 variables present | F-005/F-007 |
+| T-204 pinned Docker refs | `gpu_server/Dockerfile` | ComfyUI and ComfyUI-LTXVideo refs are 40-char commits | F-005 |
+| T-204 8 worker compose | `docker-compose.yml` | worker-0..worker-7 each has unique GPU index/device id | F-007 |
+| T-204 GPU runtime fail-fast | deploy/health scripts | `nvidia-smi` and `docker run --gpus` checks exist | F-005/F-012 |
 
 ## 还原检查清单
 
@@ -203,6 +226,11 @@ Internal/Admin:
 - [ ] gpu-worker dispatch 只选择 capabilities 匹配的 idle Worker。
 - [ ] GPU attempt 记录 worker_id，且同一 task 不会被重复派发。
 - [ ] 容量不足和 assign 失败路径可被 Admin/Metrics 观察。
+- [ ] `gpu_server/` 提供 clone 后可进入目录部署的入口。
+- [ ] GPU Worker Dockerfile 固定 ComfyUI/ComfyUI-LTXVideo 上游版本。
+- [ ] Compose 中 8 个 Worker 与 GPU index 一一对应。
+- [ ] 部署脚本在 GPU 不可见或 Docker GPU runtime 不可用时快速失败。
+- [ ] T-204 worker skeleton 默认不注册为 idle，避免真实执行能力未完成前吞任务。
 - [ ] Workflow 保存 source 和 API JSON。
 - [ ] Usage ledger 与 task completion 同步写入。
 - [ ] Tests 覆盖正常路径和异常路径。
