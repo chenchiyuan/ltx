@@ -62,6 +62,7 @@ EOF
 fi
 
 hf_token="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
+export HF_TOKEN="${hf_token}"
 
 download_file() {
   local repo="$1"
@@ -77,7 +78,7 @@ download_file() {
     HF_TOKEN="${hf_token}" huggingface-cli download "${repo}" "${file}" --local-dir "${host_dir}"
   else
     docker compose --env-file .env run --rm --no-deps \
-      -e HF_TOKEN="${hf_token}" \
+      -e HF_TOKEN \
       --entrypoint hf \
       worker-0 download "${repo}" "${file}" --local-dir "${container_dir}"
   fi
