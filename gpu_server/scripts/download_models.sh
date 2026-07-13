@@ -74,14 +74,15 @@ download_file() {
 
   echo "Downloading ${label} from ${repo}:${file}..."
   if command -v hf >/dev/null 2>&1; then
-    HF_TOKEN="${hf_token}" hf download "${repo}" "${file}" --local-dir "${host_dir}"
+    HF_TOKEN="${hf_token}" hf download --quiet "${repo}" "${file}" --local-dir "${host_dir}"
   elif command -v huggingface-cli >/dev/null 2>&1; then
     HF_TOKEN="${hf_token}" huggingface-cli download "${repo}" "${file}" --local-dir "${host_dir}"
   else
     docker compose --env-file .env run --rm --no-deps \
       -e HF_TOKEN \
+      -e HF_HUB_DISABLE_PROGRESS_BARS \
       --entrypoint hf \
-      worker-0 download "${repo}" "${file}" --local-dir "${container_dir}"
+      worker-0 download --quiet "${repo}" "${file}" --local-dir "${container_dir}"
   fi
 }
 
