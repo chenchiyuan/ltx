@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import urllib.error
+
 from gpu_server.worker_adapter.comfyui import convert_ui_workflow_to_api
+from gpu_server.worker_adapter.comfyui import run_prompt_and_fetch_video
 
 
 def test_ui_workflow_conversion_does_not_consume_socket_inputs_as_widgets() -> None:
@@ -117,3 +120,33 @@ def test_ui_workflow_conversion_expands_dynamic_combo_widget_inputs() -> None:
         "resize_type.longer_size": 1536,
         "scale_method": "lanczos",
     }
+
+
+def test_run_prompt_tolerates_history_404_until_output_is_ready() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+
+        def post_json(self, path: str, payload: dict) -> dict:
+            assert path == "/prompt"
+            assert "prompt" in payload
+            return {"prompt_id": "prompt-1"}
+
+        def get_json(self, path: str) -> dict:
+            assert path == "/history/prompt-1"
+            self.history_calls += 1
+            if self.history_calls == 1:
+                raise urllib.error.HTTPError(path, 404, "Not Found", hdrs=None, fp=None)
+            return {
+                "prompt-1": {
+                    "status": {"completed": True},
+                    "outputs": {"1": {"videos": [{"filename": "out.mp4", "type": "output"}]}},
+                }
+            }
+
+        def get_bytes(self, path: str, params: dict[str, str]) -> bytes:
+            assert path == "/view"
+            assert params["filename"] == "out.mp4"
+            return b"video"
+
+    assert run_prompt_and_fetch_video(FakeClient(), {"1": {}}, 0, 5) == b"video"

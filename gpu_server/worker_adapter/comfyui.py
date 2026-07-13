@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -131,7 +132,13 @@ def run_prompt_and_fetch_video(
     prompt_id = submitted["prompt_id"]
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        history = client.get_json(f"/history/{prompt_id}")
+        try:
+            history = client.get_json(f"/history/{prompt_id}")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                time.sleep(poll_interval_seconds)
+                continue
+            raise
         item = history.get(prompt_id)
         if item:
             status = item.get("status", {})
