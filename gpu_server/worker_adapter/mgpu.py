@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,10 @@ def _env_int(name: str, default: int) -> int:
     if not value:
         return default
     return int(value)
+
+
+def _env_timedelta_seconds(name: str, default: int) -> timedelta:
+    return timedelta(seconds=_env_int(name, default))
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -118,7 +123,7 @@ class LtxMgpuExecutor:
         self._vae_queue = torch.multiprocessing.get_context("spawn").SimpleQueue()
         controller = MGPUController(TI2VidTwoStagesRunner)
         controller.start(
-            timeout=_env_int("MGPU_START_TIMEOUT_SECONDS", 3600),
+            timeout=_env_timedelta_seconds("MGPU_START_TIMEOUT_SECONDS", 3600),
             checkpoint_path=_required_path(
                 "MGPU_CHECKPOINT_PATH",
                 "/opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors",
@@ -150,7 +155,7 @@ class LtxMgpuExecutor:
         self._vae_queue = torch.multiprocessing.get_context("spawn").SimpleQueue()
         controller = MGPUController(FixedDistilledRunner)
         controller.start(
-            timeout=_env_int("MGPU_START_TIMEOUT_SECONDS", 3600),
+            timeout=_env_timedelta_seconds("MGPU_START_TIMEOUT_SECONDS", 3600),
             distilled_checkpoint_path=checkpoint_path,
             gemma_root=_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-local"),
             spatial_upsampler_path=_required_path(
