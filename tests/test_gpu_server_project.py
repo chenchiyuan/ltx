@@ -72,6 +72,7 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "ENABLE_MGPU_EXPERIMENTAL=true" in env_example
     assert "WORKER_COUNT=5" in env_example
     assert "WORKER_SERVICES=worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-vip" in env_example
+    assert 'GPU_LAYOUT="fast:0;fast:1;fast:2;fast:3;vip:4,5,6,7"' in env_example
     assert "MGPU_PIPELINE=distilled" in env_example
     assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2.3-22b-distilled-fp8.safetensors" in env_example
 
