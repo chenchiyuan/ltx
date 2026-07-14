@@ -36,6 +36,13 @@ def _seed_workflows(session: Session) -> None:
     ]:
         existing = session.scalar(select(WorkflowTemplate).where(WorkflowTemplate.mode == mode))
         if existing:
+            version = session.scalar(
+                select(WorkflowVersion)
+                .where(WorkflowVersion.template_id == existing.id, WorkflowVersion.status == "published")
+                .order_by(WorkflowVersion.version.desc())
+            )
+            if version:
+                _ensure_default_profiles(session, version.id)
             continue
         template = WorkflowTemplate(id=new_id("wft"), mode=mode, name=name, status="active")
         version = WorkflowVersion(
@@ -46,22 +53,37 @@ def _seed_workflows(session: Session) -> None:
             source_workflow_json={"template": mode, "format": "source", "phase": "control-mvp"},
             api_workflow_json={"template": mode, "format": "api", "phase": "control-mvp"},
         )
-        profiles = [
-            WorkflowProfile(
-                id=new_id("wfp"),
-                workflow_version_id=version.id,
-                profile="fast",
-                estimated_gpu_seconds=180,
-                parameter_schema={"duration_seconds": {"min": 1, "max": 10}, "aspect_ratio": ["16:9", "9:16"]},
-            ),
-            WorkflowProfile(
-                id=new_id("wfp"),
-                workflow_version_id=version.id,
-                profile="quality",
-                estimated_gpu_seconds=360,
-                parameter_schema={"duration_seconds": {"min": 1, "max": 10}, "aspect_ratio": ["16:9", "9:16"]},
-            ),
-        ]
         session.add(template)
         session.add(version)
-        session.add_all(profiles)
+        session.flush()
+        _ensure_default_profiles(session, version.id)
+
+
+def _ensure_default_profiles(session: Session, workflow_version_id: str) -> None:
+    existing_profiles = set(
+        session.scalars(
+            select(WorkflowProfile.profile).where(WorkflowProfile.workflow_version_id == workflow_version_id)
+        ).all()
+    )
+    defaults = [
+        ("fast", 180, 1),
+        ("ultra", 360, 2),
+        ("vip", 720, 4),
+        ("quality", 360, 1),
+    ]
+    for profile, estimated_gpu_seconds, gpu_count in defaults:
+        if profile in existing_profiles:
+            continue
+        session.add(
+            WorkflowProfile(
+                id=new_id("wfp"),
+                workflow_version_id=workflow_version_id,
+                profile=profile,
+                estimated_gpu_seconds=estimated_gpu_seconds,
+                parameter_schema={
+                    "duration_seconds": {"min": 1, "max": 60},
+                    "aspect_ratio": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+                    "gpu_count": gpu_count,
+                },
+            )
+        )

@@ -6,5 +6,15 @@ capabilities:
     - image_to_video
   profiles:
     - fast
+    - ultra
+    - vip
   model: ltx-2.3
   execution: comfyui
+  gpu_layout:
+    fast:
+      - [0]
+      - [1]
+    ultra:
+      - [2, 3]
+    vip:
+      - [4, 5, 6, 7]

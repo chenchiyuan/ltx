@@ -9,7 +9,13 @@ from .ids import new_id
 from .models import UsageLedger, VideoTask, WorkflowProfile
 
 
-def record_usage(session: Session, task: VideoTask, result: str, actual_runtime_seconds: int | None) -> UsageLedger:
+def record_usage(
+    session: Session,
+    task: VideoTask,
+    result: str,
+    actual_runtime_seconds: int | None,
+    actual_gpu_seconds: int | None = None,
+) -> UsageLedger:
     profile = session.scalar(
         select(WorkflowProfile).where(
             WorkflowProfile.workflow_version_id == task.workflow_version_id,
@@ -24,7 +30,7 @@ def record_usage(session: Session, task: VideoTask, result: str, actual_runtime_
         event_type="task_completed",
         profile=task.profile,
         estimated_gpu_seconds=estimated,
-        actual_gpu_seconds=None,
+        actual_gpu_seconds=actual_gpu_seconds,
         actual_runtime_seconds=actual_runtime_seconds,
         attempt_count=task.attempt_count,
         result=result,

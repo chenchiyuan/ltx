@@ -225,7 +225,7 @@ def apply_worker_attempt_event(
         task.progress_percent = 100
         task.error_code = None
         task.completed_at = datetime.now(UTC)
-        record_usage(session, task, "succeeded", runtime_seconds)
+        record_usage(session, task, "succeeded", runtime_seconds, _actual_gpu_seconds_for_attempt(session, attempt, runtime_seconds))
         session.commit()
         session.refresh(task)
         return task
@@ -242,7 +242,7 @@ def apply_worker_attempt_event(
         task.progress_stage = "failed"
         task.progress_percent = 100
         task.completed_at = datetime.now(UTC)
-        record_usage(session, task, "failed", runtime_seconds)
+        record_usage(session, task, "failed", runtime_seconds, _actual_gpu_seconds_for_attempt(session, attempt, runtime_seconds))
     session.commit()
     session.refresh(task)
     return task
@@ -285,7 +285,7 @@ def complete_running(session: Session, storage: ObjectStorageAdapter, executor: 
         task.progress_percent = 100
         task.error_code = None
         task.completed_at = datetime.now(UTC)
-        record_usage(session, task, "succeeded", result.runtime_seconds)
+        record_usage(session, task, "succeeded", result.runtime_seconds, result.runtime_seconds)
         session.commit()
         session.refresh(task)
         return task
@@ -302,7 +302,7 @@ def complete_running(session: Session, storage: ObjectStorageAdapter, executor: 
         task.progress_stage = "failed"
         task.progress_percent = 100
         task.completed_at = datetime.now(UTC)
-        record_usage(session, task, "failed", result.runtime_seconds)
+        record_usage(session, task, "failed", result.runtime_seconds, result.runtime_seconds)
     session.commit()
     session.refresh(task)
     return task
@@ -398,6 +398,19 @@ def _release_worker_for_attempt(session: Session, attempt: TaskAttempt) -> None:
         worker.status = "idle"
         worker.queue_depth = 0
         worker.current_attempt_id = None
+
+
+def _actual_gpu_seconds_for_attempt(session: Session, attempt: TaskAttempt, runtime_seconds: int) -> int:
+    if not attempt.worker_id:
+        return runtime_seconds
+    from .models import GpuWorker
+
+    worker = session.get(GpuWorker, attempt.worker_id)
+    if not worker:
+        return runtime_seconds
+    capabilities = worker.capabilities or {}
+    gpu_count = capabilities.get("gpu_count") or len(capabilities.get("gpu_indices") or []) or 1
+    return runtime_seconds * int(gpu_count)
 
 
 def _estimated_seconds(session: Session, workflow_version_id: str, profile: str) -> int:

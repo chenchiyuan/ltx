@@ -24,6 +24,14 @@ def env_int(name: str, default: int) -> int:
     return int(value)
 
 
+def env_csv(name: str, default: list[str]) -> list[str]:
+    value = os.getenv(name)
+    if not value:
+        return default
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    return items or default
+
+
 def post_json(url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
@@ -55,13 +63,15 @@ def get_url(url: str) -> bool:
         return False
 
 
-def capabilities(gpu_index: int) -> dict[str, Any]:
+def capabilities(gpu_index: int, gpu_indices: list[int], profiles: list[str]) -> dict[str, Any]:
     return {
         "modes": ["text_to_video", "image_to_video"],
-        "profiles": ["fast"],
+        "profiles": profiles,
         "model": "ltx-2.3",
-        "execution": "comfyui",
+        "execution": os.getenv("WORKER_EXECUTION_BACKEND", "comfyui"),
         "gpu_index": gpu_index,
+        "gpu_indices": gpu_indices,
+        "gpu_count": len(gpu_indices),
     }
 
 
@@ -262,8 +272,10 @@ def main() -> None:
     worker_token = os.environ["WORKER_TOKEN"]
     node_name = os.getenv("NODE_NAME", "ltx-gpu-001")
     gpu_index = env_int("GPU_INDEX", 0)
+    gpu_indices = [int(item) for item in env_csv("GPU_IDS", [str(gpu_index)])]
     worker_slot = env_int("WORKER_SLOT", gpu_index)
     worker_name = os.getenv("WORKER_NAME", f"ltx-worker-{gpu_index}")
+    worker_profiles = env_csv("WORKER_PROFILES", ["fast"])
     status = os.getenv("WORKER_STATUS", "unhealthy")
     not_ready_reason = os.getenv("WORKER_NOT_READY_REASON", "T204_ADAPTER_SKELETON")
     heartbeat_interval = env_int("HEARTBEAT_INTERVAL_SECONDS", 15)
@@ -293,7 +305,7 @@ def main() -> None:
     worker_server = start_worker_http_server(runtime, worker_api_host, worker_api_port)
     comfyui = start_comfyui()
 
-    worker_capabilities = capabilities(gpu_index)
+    worker_capabilities = capabilities(gpu_index, gpu_indices, worker_profiles)
     worker_capabilities["assign_url"] = f"http://{worker_assign_host}:{worker_api_port}/worker/attempts"
     worker_capabilities["workflow"] = workflow_path.name
     if status != "idle":

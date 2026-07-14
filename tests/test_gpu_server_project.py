@@ -56,7 +56,8 @@ def test_env_example_contains_phase2_contract_variables() -> None:
         "WEB_PORT",
         "DISPATCH_INTERVAL_SECONDS",
         "WORKER_COUNT",
-        "GPU_INDICES",
+        "WORKER_SERVICES",
+        "GPU_LAYOUT",
         "MODEL_DIR",
         "STORAGE_DIR",
         "WORKER_TOKEN",
@@ -79,13 +80,19 @@ def test_gpu_dockerfile_pins_upstream_refs() -> None:
     assert "RES4LYF" in dockerfile
 
 
-def test_compose_defines_eight_single_gpu_workers() -> None:
+def test_compose_defines_four_profile_workers_with_one_one_two_four_gpu_layout() -> None:
     compose = read("docker-compose.yml")
 
-    for gpu_index in range(8):
-        assert f"worker-{gpu_index}:" in compose
-        assert f'GPU_INDEX: "{gpu_index}"' in compose
-        assert f'device_ids: ["{gpu_index}"]' in compose
+    expected = {
+        "worker-fast-0": ('device_ids: ["0"]', 'WORKER_PROFILES: fast', 'GPU_IDS: "0"'),
+        "worker-fast-1": ('device_ids: ["1"]', 'WORKER_PROFILES: fast', 'GPU_IDS: "1"'),
+        "worker-ultra": ('device_ids: ["2", "3"]', 'WORKER_PROFILES: ultra', 'GPU_IDS: "2,3"'),
+        "worker-vip": ('device_ids: ["4", "5", "6", "7"]', 'WORKER_PROFILES: vip', 'GPU_IDS: "4,5,6,7"'),
+    }
+    for service_name, snippets in expected.items():
+        assert f"{service_name}:" in compose
+        for snippet in snippets:
+            assert snippet in compose
 
 
 def test_compose_defines_separate_web_and_dispatcher_services() -> None:
@@ -109,6 +116,9 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     assert 'const API_BASE = "/api";' in app
     assert "/v1/video-generations" in app
     assert "/v1/assets/uploads" in app
+    assert 'value="fast"' in index
+    assert 'value="ultra"' in index
+    assert 'value="vip"' in index
     assert "BOOTSTRAP_API_KEY" not in index
     assert "ADMIN_TOKEN" not in index
 

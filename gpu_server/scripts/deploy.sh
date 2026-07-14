@@ -39,9 +39,9 @@ fi
 
 services=(control-plane)
 if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
-  IFS=',' read -r -a gpu_indices <<< "${GPU_INDICES:-0,1,2,3,4,5,6,7}"
-  for gpu_index in "${gpu_indices[@]}"; do
-    services+=("worker-${gpu_index}")
+  IFS=',' read -r -a worker_services <<< "${WORKER_SERVICES:-worker-fast-0,worker-fast-1,worker-ultra,worker-vip}"
+  for worker_service in "${worker_services[@]}"; do
+    services+=("${worker_service}")
   done
 fi
 

@@ -87,7 +87,7 @@ services:
     ports:
       - "${WEB_PORT:-80}:80"
 
-  worker-0:
+  worker-fast-0:
     profiles: ["workers"]
     build: *worker_build
     restart: unless-stopped
@@ -105,11 +105,13 @@ services:
     environment:
       <<: *worker_env
       GPU_INDEX: "0"
+      GPU_IDS: "0"
       WORKER_SLOT: "0"
-      WORKER_NAME: ltx-worker-0
-      WORKER_ASSIGN_HOST: worker-0
+      WORKER_NAME: ltx-worker-fast-0
+      WORKER_ASSIGN_HOST: worker-fast-0
+      WORKER_PROFILES: fast
 
-  worker-1:
+  worker-fast-1:
     profiles: ["workers"]
     build: *worker_build
     restart: unless-stopped
@@ -127,11 +129,13 @@ services:
     environment:
       <<: *worker_env
       GPU_INDEX: "1"
+      GPU_IDS: "1"
       WORKER_SLOT: "1"
-      WORKER_NAME: ltx-worker-1
-      WORKER_ASSIGN_HOST: worker-1
+      WORKER_NAME: ltx-worker-fast-1
+      WORKER_ASSIGN_HOST: worker-fast-1
+      WORKER_PROFILES: fast
 
-  worker-2:
+  worker-ultra:
     profiles: ["workers"]
     build: *worker_build
     restart: unless-stopped
@@ -144,16 +148,18 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["2"]
+              device_ids: ["2", "3"]
               capabilities: ["gpu"]
     environment:
       <<: *worker_env
       GPU_INDEX: "2"
+      GPU_IDS: "2,3"
       WORKER_SLOT: "2"
-      WORKER_NAME: ltx-worker-2
-      WORKER_ASSIGN_HOST: worker-2
+      WORKER_NAME: ltx-worker-ultra
+      WORKER_ASSIGN_HOST: worker-ultra
+      WORKER_PROFILES: ultra
 
-  worker-3:
+  worker-vip:
     profiles: ["workers"]
     build: *worker_build
     restart: unless-stopped
@@ -166,99 +172,13 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["3"]
-              capabilities: ["gpu"]
-    environment:
-      <<: *worker_env
-      GPU_INDEX: "3"
-      WORKER_SLOT: "3"
-      WORKER_NAME: ltx-worker-3
-      WORKER_ASSIGN_HOST: worker-3
-
-  worker-4:
-    profiles: ["workers"]
-    build: *worker_build
-    restart: unless-stopped
-    depends_on:
-      control-plane:
-        condition: service_healthy
-    volumes: *worker_volumes
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["4"]
+              device_ids: ["4", "5", "6", "7"]
               capabilities: ["gpu"]
     environment:
       <<: *worker_env
       GPU_INDEX: "4"
+      GPU_IDS: "4,5,6,7"
       WORKER_SLOT: "4"
-      WORKER_NAME: ltx-worker-4
-      WORKER_ASSIGN_HOST: worker-4
-
-  worker-5:
-    profiles: ["workers"]
-    build: *worker_build
-    restart: unless-stopped
-    depends_on:
-      control-plane:
-        condition: service_healthy
-    volumes: *worker_volumes
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["5"]
-              capabilities: ["gpu"]
-    environment:
-      <<: *worker_env
-      GPU_INDEX: "5"
-      WORKER_SLOT: "5"
-      WORKER_NAME: ltx-worker-5
-      WORKER_ASSIGN_HOST: worker-5
-
-  worker-6:
-    profiles: ["workers"]
-    build: *worker_build
-    restart: unless-stopped
-    depends_on:
-      control-plane:
-        condition: service_healthy
-    volumes: *worker_volumes
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["6"]
-              capabilities: ["gpu"]
-    environment:
-      <<: *worker_env
-      GPU_INDEX: "6"
-      WORKER_SLOT: "6"
-      WORKER_NAME: ltx-worker-6
-      WORKER_ASSIGN_HOST: worker-6
-
-  worker-7:
-    profiles: ["workers"]
-    build: *worker_build
-    restart: unless-stopped
-    depends_on:
-      control-plane:
-        condition: service_healthy
-    volumes: *worker_volumes
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["7"]
-              capabilities: ["gpu"]
-    environment:
-      <<: *worker_env
-      GPU_INDEX: "7"
-      WORKER_SLOT: "7"
-      WORKER_NAME: ltx-worker-7
-      WORKER_ASSIGN_HOST: worker-7
+      WORKER_NAME: ltx-worker-vip
+      WORKER_ASSIGN_HOST: worker-vip
+      WORKER_PROFILES: vip

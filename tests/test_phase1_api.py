@@ -400,6 +400,73 @@ def test_gpu_worker_dispatch_assigns_matching_idle_worker_once(tmp_path):
         assert by_id[quality_worker["worker_id"]]["status"] == "idle"
 
 
+def test_gpu_worker_dispatch_matches_ultra_profile_and_records_gpu_seconds(tmp_path, monkeypatch):
+    captured: dict = {}
+
+    class FakeResponse:
+        status = 202
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"status":"accepted"}'
+
+    def fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with _gpu_client(tmp_path) as client:
+        fast_worker = _worker_payload(0, profiles=["fast"])
+        fast_worker["capabilities"]["gpu_count"] = 1
+        client.post("/internal/workers/register", json=fast_worker, headers=WORKER)
+        ultra_worker = _worker_payload(2, profiles=["ultra"])
+        ultra_worker["worker_name"] = "gpu-host-01-ultra"
+        ultra_worker["capabilities"]["gpu_indices"] = [2, 3]
+        ultra_worker["capabilities"]["gpu_count"] = 2
+        ultra_worker["capabilities"]["assign_url"] = "http://worker-ultra:9000/worker/attempts"
+        registered_ultra = client.post("/internal/workers/register", json=ultra_worker, headers=WORKER).json()
+
+        created = client.post(
+            "/v1/video-generations",
+            json=_text_payload(prompt="dispatch ultra", profile="ultra"),
+            headers=AUTH,
+        )
+        assert created.status_code == 200
+        task_id = created.json()["task_id"]
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["worker_id"] == registered_ultra["worker_id"]
+        attempt_id = dispatched.json()["attempt_id"]
+        assert captured["payload"]["profile"] == "ultra"
+
+        output_uri = captured["payload"]["output"]["storage_uri"]
+        client.app.state.ltx.storage.write_bytes(output_uri, b"ultra video")
+        completed = client.post(
+            f"/internal/attempts/{attempt_id}/events",
+            json={
+                "status": "succeeded",
+                "output_storage_uri": output_uri,
+                "output_size_bytes": len(b"ultra video"),
+                "runtime_seconds": 9,
+            },
+            headers=WORKER,
+        )
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "succeeded"
+
+        usage = client.get("/admin/usage", headers=ADMIN).json()[0]
+        assert usage["actual_runtime_seconds"] == 9
+        assert usage["actual_gpu_seconds"] == 18
+        assert usage["estimated_gpu_seconds"] == created.json()["estimated_gpu_seconds"]
+
+
 def test_gpu_worker_dispatch_retryable_assign_failure_requeues(tmp_path):
     with _gpu_client(tmp_path) as client:
         worker = client.post("/internal/workers/register", json=_worker_payload(0), headers=WORKER).json()
@@ -682,7 +749,7 @@ def test_admin_workflow_lifecycle_and_access_control(client):
     assert workflows.status_code == 200
     payload = workflows.json()
     assert {item["mode"] for item in payload["templates"]} == {"text_to_video", "image_to_video"}
-    assert {item["profile"] for item in payload["profiles"]} == {"fast", "quality"}
+    assert {item["profile"] for item in payload["profiles"]} == {"fast", "ultra", "vip", "quality"}
 
     text_template_id = next(item["id"] for item in payload["templates"] if item["mode"] == "text_to_video")
     original_version_id = next(
@@ -749,11 +816,11 @@ def _run_one_attempt(client: TestClient) -> dict:
     return completed.json()
 
 
-def _text_payload(prompt: str = "hello") -> dict:
+def _text_payload(prompt: str = "hello", profile: str = "fast") -> dict:
     return {
         "mode": "text_to_video",
         "prompt": prompt,
-        "profile": "fast",
+        "profile": profile,
         "duration_seconds": 5,
         "aspect_ratio": "16:9",
     }
@@ -784,6 +851,8 @@ def _worker_payload(gpu_index: int, profiles: list[str] | None = None) -> dict:
             "modes": ["text_to_video", "image_to_video"],
             "profiles": profiles or ["fast"],
             "ltx_profile": "distilled_single_stage",
+            "gpu_indices": [gpu_index],
+            "gpu_count": 1,
         },
         "metrics_url": f"http://gpu-host-01:{9100 + gpu_index}/metrics",
     }

@@ -266,7 +266,14 @@ async function cancelSelectedTask() {
 function renderOps(data) {
   if (Array.isArray(data.workers)) {
     els.opsOutput.innerHTML = data.workers
-      .map((worker) => `<div class="metric-line">${worker.worker_name} · ${worker.status} · GPU ${worker.gpu_index} · ${worker.capabilities?.comfyui_healthy ? "ComfyUI ok" : "ComfyUI pending"}</div>`)
+      .map((worker) => {
+        const profiles = worker.capabilities?.profiles?.join("/") || "-";
+        const gpuIndices = worker.capabilities?.gpu_indices?.join(",") || worker.gpu_index;
+        const gpuCount = worker.capabilities?.gpu_count || 1;
+        const runtime = worker.capabilities?.execution || "-";
+        const health = worker.capabilities?.comfyui_healthy ? "ComfyUI ok" : "ComfyUI pending";
+        return `<div class="metric-line">${worker.worker_name} · ${worker.status} · ${profiles} · ${gpuCount} GPU [${gpuIndices}] · ${runtime} · ${health}</div>`;
+      })
       .join("");
     return;
   }
