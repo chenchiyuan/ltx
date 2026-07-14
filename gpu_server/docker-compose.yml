@@ -15,6 +15,17 @@ x-worker-build: &worker_build
     TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.23.0+cu128}
     TORCHAUDIO_VERSION: ${TORCHAUDIO_VERSION:-2.8.0+cu128}
 
+x-mgpu-worker-build: &mgpu_worker_build
+  context: ..
+  dockerfile: gpu_server/mgpu.Dockerfile
+  args:
+    LTX2_REPO: ${LTX2_REPO:-https://github.com/Lightricks/LTX-2.git}
+    LTX2_REF: ${LTX2_REF:-9377758131b1ffde4b7f766804590a6617bf2ab9}
+    PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
+    TORCH_VERSION: ${TORCH_VERSION:-2.8.0+cu128}
+    TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.23.0+cu128}
+    TORCHAUDIO_VERSION: ${TORCHAUDIO_VERSION:-2.8.0+cu128}
+
 x-worker-env: &worker_env
   CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://control-plane:8000}
   WORKER_TOKEN: ${WORKER_TOKEN:?WORKER_TOKEN is required}
@@ -31,8 +42,25 @@ x-worker-env: &worker_env
   MODEL_DIR: /opt/comfyui/models
   STORAGE_DIR: /data/ltx-storage
 
+x-mgpu-worker-env: &mgpu_worker_env
+  <<: *worker_env
+  START_COMFYUI: "false"
+  WORKER_EXECUTION_BACKEND: ltx_mgpu
+  MODEL_DIR: /opt/ltx/models
+  MGPU_CHECKPOINT_PATH: /opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors
+  MGPU_DISTILLED_LORA_PATH: /opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
+  MGPU_SPATIAL_UPSAMPLER_PATH: /opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+  MGPU_GEMMA_ROOT: /opt/ltx/models/gemma-3-12b-local
+  MGPU_NUM_INFERENCE_STEPS: ${MGPU_NUM_INFERENCE_STEPS:-8}
+  MGPU_START_TIMEOUT_SECONDS: ${MGPU_START_TIMEOUT_SECONDS:-3600}
+  MGPU_JOB_TIMEOUT_SECONDS: ${MGPU_JOB_TIMEOUT_SECONDS:-7200}
+
 x-worker-volumes: &worker_volumes
   - ${MODEL_DIR:-/opt/ltx/models}:/opt/comfyui/models
+  - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
+
+x-mgpu-worker-volumes: &mgpu_worker_volumes
+  - ${MODEL_DIR:-/opt/ltx/models}:/opt/ltx/models
   - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
 
 services:
@@ -137,12 +165,12 @@ services:
 
   worker-ultra:
     profiles: ["workers"]
-    build: *worker_build
+    build: *mgpu_worker_build
     restart: unless-stopped
     depends_on:
       control-plane:
         condition: service_healthy
-    volumes: *worker_volumes
+    volumes: *mgpu_worker_volumes
     deploy:
       resources:
         reservations:
@@ -151,7 +179,7 @@ services:
               device_ids: ["2", "3"]
               capabilities: ["gpu"]
     environment:
-      <<: *worker_env
+      <<: *mgpu_worker_env
       GPU_INDEX: "2"
       GPU_IDS: "2,3"
       WORKER_SLOT: "2"
@@ -161,12 +189,12 @@ services:
 
   worker-vip:
     profiles: ["workers"]
-    build: *worker_build
+    build: *mgpu_worker_build
     restart: unless-stopped
     depends_on:
       control-plane:
         condition: service_healthy
-    volumes: *worker_volumes
+    volumes: *mgpu_worker_volumes
     deploy:
       resources:
         reservations:
@@ -175,7 +203,7 @@ services:
               device_ids: ["4", "5", "6", "7"]
               capabilities: ["gpu"]
     environment:
-      <<: *worker_env
+      <<: *mgpu_worker_env
       GPU_INDEX: "4"
       GPU_IDS: "4,5,6,7"
       WORKER_SLOT: "4"

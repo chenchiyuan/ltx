@@ -21,6 +21,7 @@ def test_gpu_server_required_files_exist() -> None:
         "README.md",
         ".env.example",
         "Dockerfile",
+        "mgpu.Dockerfile",
         "control.Dockerfile",
         "docker-compose.yml",
         "scripts/deploy.sh",
@@ -80,6 +81,15 @@ def test_gpu_dockerfile_pins_upstream_refs() -> None:
     assert "RES4LYF" in dockerfile
 
 
+def test_mgpu_dockerfile_pins_official_ltx2_ref_and_builds_kernels() -> None:
+    dockerfile = read("mgpu.Dockerfile")
+
+    assert re.search(r"ARG LTX2_REF=[0-9a-f]{40}", dockerfile)
+    assert "packages/ltx-pipelines" in dockerfile
+    assert "packages/ltx-kernels" in dockerfile
+    assert "TORCH_CUDA_ARCH_LIST=8.9" in dockerfile
+
+
 def test_compose_defines_four_profile_workers_with_one_one_two_four_gpu_layout() -> None:
     compose = read("docker-compose.yml")
 
@@ -93,6 +103,9 @@ def test_compose_defines_four_profile_workers_with_one_one_two_four_gpu_layout()
         assert f"{service_name}:" in compose
         for snippet in snippets:
             assert snippet in compose
+    assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
+    assert 'START_COMFYUI: "false"' in compose
+    assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
 
 
 def test_compose_defines_separate_web_and_dispatcher_services() -> None:

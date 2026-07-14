@@ -93,6 +93,7 @@ class WorkerRuntime:
         self.current_attempt_id: str | None = None
         self.last_error: str | None = None
         self.base_status = "unhealthy"
+        self._ltx_mgpu_executor = None
 
     def accept_attempt(self, payload: dict[str, Any]) -> dict[str, str]:
         attempt_id = str(payload.get("attempt_id") or "")
@@ -129,8 +130,11 @@ class WorkerRuntime:
         started_at = time.monotonic()
         try:
             self._post_event(attempt_id, {"status": "progress", "progress_stage": "worker_received", "progress_percent": 15})
-            if os.getenv("WORKER_EXECUTION_BACKEND", "comfyui") == "mock":
+            backend = os.getenv("WORKER_EXECUTION_BACKEND", "comfyui")
+            if backend == "mock":
                 output = f"mock gpu worker output\nattempt_id={attempt_id}\n".encode("utf-8")
+            elif backend == "ltx_mgpu":
+                output = self._execute_ltx_mgpu(payload, attempt_id)
             else:
                 output = self._execute_comfyui(payload, attempt_id)
             output_uri = payload["output"]["storage_uri"]
@@ -177,6 +181,13 @@ class WorkerRuntime:
             poll_interval_seconds=env_int("COMFYUI_POLL_INTERVAL_SECONDS", 5),
             timeout_seconds=env_int("COMFYUI_TIMEOUT_SECONDS", 3600),
         )
+
+    def _execute_ltx_mgpu(self, payload: dict[str, Any], attempt_id: str) -> bytes:
+        if self._ltx_mgpu_executor is None:
+            from .mgpu import LtxMgpuExecutor
+
+            self._ltx_mgpu_executor = LtxMgpuExecutor(self.storage)
+        return self._ltx_mgpu_executor.execute(payload, attempt_id)
 
     def _prepare_input_image(self, payload: dict[str, Any], attempt_id: str) -> str | None:
         input_asset = payload.get("input_asset")
@@ -362,6 +373,8 @@ def main() -> None:
             comfyui.wait(timeout=20)
         except subprocess.TimeoutExpired:
             comfyui.kill()
+    if runtime._ltx_mgpu_executor is not None:
+        runtime._ltx_mgpu_executor.shutdown()
     worker_server.shutdown()
 
 
@@ -388,6 +401,8 @@ def _error_code(exc: Exception) -> str:
         return "COMFYUI_UNAVAILABLE"
     if isinstance(exc, ValueError):
         return "REQUEST_INVALID_PARAMETER"
+    if "mgpu" in exc.__class__.__name__.lower() or "LTX MGPU" in str(exc):
+        return "LTX_MGPU_FAILED"
     return "COMFYUI_PROMPT_FAILED"
 
 
