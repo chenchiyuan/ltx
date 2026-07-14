@@ -203,7 +203,7 @@ def encode_video_simple(*, video: Any, fps: float, audio: Any, output_path: str)
     container = av.open(output_path, mode="w")
     success = False
     try:
-        stream = container.add_stream("libx264", rate=int(fps), options={"crf": "23", "preset": "veryfast"})
+        stream = container.add_stream("libx264", rate=int(fps), options={"crf": "19", "preset": "veryfast"})
         stream.width = int(first.shape[2])
         stream.height = int(first.shape[1])
         stream.pix_fmt = "yuv420p"

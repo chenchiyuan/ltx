@@ -13,8 +13,18 @@ def test_frame_count_for_duration_returns_8k_plus_one() -> None:
 
 
 def test_mgpu_dimensions_are_two_stage_compatible() -> None:
-    for aspect_ratio in ["16:9", "9:16", "1:1", "4:3", "3:4", "unknown"]:
+    expected_dimensions = {
+        "16:9": (1024, 576),
+        "9:16": (576, 1024),
+        "1:1": (768, 768),
+        "4:3": (1024, 768),
+        "3:4": (768, 1024),
+        "unknown": (1024, 576),
+    }
+
+    for aspect_ratio, expected in expected_dimensions.items():
         width, height = dimensions_for_aspect_ratio(aspect_ratio)
+        assert (width, height) == expected
         assert width % 64 == 0
         assert height % 64 == 0
 

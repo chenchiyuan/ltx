@@ -15,11 +15,11 @@ def frame_count_for_duration(duration_seconds: int, frame_rate: float) -> int:
 
 def dimensions_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
     presets = {
-        "16:9": (768, 512),
-        "9:16": (512, 768),
-        "1:1": (512, 512),
-        "4:3": (768, 576),
-        "3:4": (576, 768),
+        "16:9": (1024, 576),
+        "9:16": (576, 1024),
+        "1:1": (768, 768),
+        "4:3": (1024, 768),
+        "3:4": (768, 1024),
     }
     return presets.get(aspect_ratio, presets["16:9"])
 
