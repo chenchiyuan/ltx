@@ -30,6 +30,13 @@ def _env_int(name: str, default: int) -> int:
     return int(value)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _required_path(env_name: str, default: str) -> str:
     path = os.getenv(env_name, default)
     if not Path(path).exists():
@@ -96,6 +103,14 @@ class LtxMgpuExecutor:
         if self._controller is not None and self._controller.is_alive:
             return self._controller
 
+        pipeline = os.getenv("MGPU_PIPELINE", "two_stage").strip().lower().replace("-", "_")
+        if pipeline in {"distilled", "distilled_single_stage"}:
+            return self._start_distilled_controller()
+        if pipeline not in {"two_stage", "ti2vid_two_stages"}:
+            raise ValueError(f"Unsupported MGPU_PIPELINE: {pipeline}")
+        return self._start_two_stage_controller()
+
+    def _start_two_stage_controller(self):
         from ltx_pipelines.multigpu.controller import MGPUController
         from ltx_pipelines.ti2vid_two_stages_mgpu import TI2VidTwoStagesRunner
         import torch
@@ -118,6 +133,37 @@ class LtxMgpuExecutor:
                 "/opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
             ),
             vae_queue=self._vae_queue,
+        )
+        self._controller = controller
+        return controller
+
+    def _start_distilled_controller(self):
+        from ltx_pipelines.multigpu.controller import MGPUController
+        import torch
+
+        from .distilled_mgpu import FixedDistilledRunner, QuantizationBuilder
+
+        checkpoint_path = _required_path(
+            "MGPU_DISTILLED_CHECKPOINT_PATH",
+            "/opt/ltx/models/checkpoints/ltx-2.3-22b-distilled-fp8.safetensors",
+        )
+        self._vae_queue = torch.multiprocessing.get_context("spawn").SimpleQueue()
+        controller = MGPUController(FixedDistilledRunner)
+        controller.start(
+            timeout=_env_int("MGPU_START_TIMEOUT_SECONDS", 3600),
+            distilled_checkpoint_path=checkpoint_path,
+            gemma_root=_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-local"),
+            spatial_upsampler_path=_required_path(
+                "MGPU_SPATIAL_UPSAMPLER_PATH",
+                "/opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+            ),
+            vae_queue=self._vae_queue,
+            quantization=QuantizationBuilder(os.getenv("MGPU_QUANTIZATION", "fp8-scaled-mm"), checkpoint_path),
+            offload_mode=os.getenv("MGPU_OFFLOAD_MODE", "none"),
+            no_lora_swap=_env_bool("MGPU_NO_LORA_SWAP", True),
+            no_audio=_env_bool("MGPU_NO_AUDIO", True),
+            vae_overlap=_env_int("MGPU_VAE_OVERLAP", 4),
+            distributed_vae=_env_bool("MGPU_DISTRIBUTED_VAE", False),
         )
         self._controller = controller
         return controller

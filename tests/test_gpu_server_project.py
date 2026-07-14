@@ -28,6 +28,7 @@ def test_gpu_server_required_files_exist() -> None:
         "scripts/healthcheck.sh",
         "scripts/download_models.sh",
         "worker_adapter/runtime.py",
+        "worker_adapter/distilled_mgpu.py",
         "config/worker.yaml",
         "workflows/README.md",
     ]
@@ -68,9 +69,11 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "LTX_HF_REPO=Lightricks/LTX-2.3" in env_example
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
-    assert "ENABLE_MGPU_EXPERIMENTAL=false" in env_example
-    assert "WORKER_COUNT=8" in env_example
-    assert "worker-fast-7" in env_example
+    assert "ENABLE_MGPU_EXPERIMENTAL=true" in env_example
+    assert "WORKER_COUNT=5" in env_example
+    assert "WORKER_SERVICES=worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-vip" in env_example
+    assert "MGPU_PIPELINE=distilled" in env_example
+    assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2.3-22b-distilled-fp8.safetensors" in env_example
 
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:
@@ -112,6 +115,10 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
             assert snippet in compose
     assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
     assert 'START_COMFYUI: "false"' in compose
+    assert "MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}" in compose
+    assert "MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2.3-22b-distilled-fp8.safetensors}" in compose
+    assert "${MGPU_DISTILLED_CACHE_DIR:-/opt/ltx/models/checkpoints}:/fp8:ro" in compose
+    assert "${MGPU_GEMMA_CACHE_DIR:-/opt/ltx/models/gemma-3-12b-local}:/gemma:ro" in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
     assert compose.count('profiles: ["workers"]') == 8
     assert compose.count('profiles: ["mgpu-experimental"]') == 2
@@ -142,7 +149,8 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     assert 'value="ultra"' in index
     assert 'value="vip"' in index
     assert 'value="ultra" disabled' in index
-    assert 'value="vip" disabled' in index
+    assert 'value="vip" disabled' not in index
+    assert 'value="vip">vip · 4 GPU' in index
     assert "BOOTSTRAP_API_KEY" not in index
     assert "ADMIN_TOKEN" not in index
 
