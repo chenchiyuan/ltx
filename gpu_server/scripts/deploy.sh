@@ -45,5 +45,5 @@ if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
   done
 fi
 
-docker compose --env-file .env up -d --build "${services[@]}"
+docker compose --env-file .env up -d --build --remove-orphans "${services[@]}"
 ./scripts/healthcheck.sh
