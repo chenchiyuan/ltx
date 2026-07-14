@@ -69,6 +69,8 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
     assert "ENABLE_MGPU_EXPERIMENTAL=false" in env_example
+    assert "WORKER_COUNT=8" in env_example
+    assert "worker-fast-7" in env_example
 
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:
@@ -95,11 +97,15 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
     compose = read("docker-compose.yml")
 
     expected = {
-        "worker-fast-0": ('device_ids: ["0"]', 'WORKER_PROFILES: fast', 'GPU_IDS: "0"'),
-        "worker-fast-1": ('device_ids: ["1"]', 'WORKER_PROFILES: fast', 'GPU_IDS: "1"'),
-        "worker-ultra": ('device_ids: ["2", "3"]', 'WORKER_PROFILES: ultra', 'GPU_IDS: "2,3"'),
-        "worker-vip": ('device_ids: ["4", "5", "6", "7"]', 'WORKER_PROFILES: vip', 'GPU_IDS: "4,5,6,7"'),
+        f"worker-fast-{gpu_index}": (
+            f'device_ids: ["{gpu_index}"]',
+            "WORKER_PROFILES: fast",
+            f'GPU_IDS: "{gpu_index}"',
+        )
+        for gpu_index in range(8)
     }
+    expected["worker-ultra"] = ('device_ids: ["2", "3"]', 'WORKER_PROFILES: ultra', 'GPU_IDS: "2,3"')
+    expected["worker-vip"] = ('device_ids: ["4", "5", "6", "7"]', 'WORKER_PROFILES: vip', 'GPU_IDS: "4,5,6,7"')
     for service_name, snippets in expected.items():
         assert f"{service_name}:" in compose
         for snippet in snippets:
@@ -107,7 +113,7 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
     assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
     assert 'START_COMFYUI: "false"' in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
-    assert compose.count('profiles: ["workers"]') == 2
+    assert compose.count('profiles: ["workers"]') == 8
     assert compose.count('profiles: ["mgpu-experimental"]') == 2
 
 
@@ -135,6 +141,8 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     assert 'value="fast"' in index
     assert 'value="ultra"' in index
     assert 'value="vip"' in index
+    assert 'value="ultra" disabled' in index
+    assert 'value="vip" disabled' in index
     assert "BOOTSTRAP_API_KEY" not in index
     assert "ADMIN_TOKEN" not in index
 
