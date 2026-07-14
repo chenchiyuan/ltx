@@ -130,4 +130,5 @@ def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     assert "nvidia-smi" in deploy
     assert "docker run --rm --gpus" in deploy
     assert "docker compose --env-file .env up -d --build" in deploy
+    assert "services=(control-plane dispatcher web-frontend)" in deploy
     assert "nvidia-smi -L" in healthcheck

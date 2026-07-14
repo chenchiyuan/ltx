@@ -37,7 +37,7 @@ if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
   fi
 fi
 
-services=(control-plane)
+services=(control-plane dispatcher web-frontend)
 if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
   IFS=',' read -r -a worker_services <<< "${WORKER_SERVICES:-worker-fast-0,worker-fast-1,worker-ultra,worker-vip}"
   for worker_service in "${worker_services[@]}"; do
