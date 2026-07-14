@@ -156,4 +156,5 @@ def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     assert "docker compose --env-file .env up -d --build --remove-orphans" in deploy
     assert "services=(control-plane dispatcher web-frontend)" in deploy
     assert "ENABLE_MGPU_EXPERIMENTAL" in deploy
+    assert "Marked skipped worker offline" in deploy
     assert "nvidia-smi -L" in healthcheck
