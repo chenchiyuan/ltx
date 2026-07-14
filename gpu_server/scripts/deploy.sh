@@ -41,6 +41,10 @@ services=(control-plane dispatcher web-frontend)
 if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
   IFS=',' read -r -a worker_services <<< "${WORKER_SERVICES:-worker-fast-0,worker-fast-1,worker-ultra,worker-vip}"
   for worker_service in "${worker_services[@]}"; do
+    if [[ "${worker_service}" =~ ^worker-(ultra|vip)$ && "${ENABLE_MGPU_EXPERIMENTAL:-false}" != "true" ]]; then
+      echo "Skipping ${worker_service}; set ENABLE_MGPU_EXPERIMENTAL=true only after MGPU E2E validation." >&2
+      continue
+    fi
     services+=("${worker_service}")
   done
 fi

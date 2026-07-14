@@ -164,7 +164,7 @@ services:
       WORKER_PROFILES: fast
 
   worker-ultra:
-    profiles: ["workers"]
+    profiles: ["mgpu-experimental"]
     build: *mgpu_worker_build
     restart: unless-stopped
     depends_on:
@@ -188,7 +188,7 @@ services:
       WORKER_PROFILES: ultra
 
   worker-vip:
-    profiles: ["workers"]
+    profiles: ["mgpu-experimental"]
     build: *mgpu_worker_build
     restart: unless-stopped
     depends_on:

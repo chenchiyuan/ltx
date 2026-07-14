@@ -68,6 +68,7 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "LTX_HF_REPO=Lightricks/LTX-2.3" in env_example
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
+    assert "ENABLE_MGPU_EXPERIMENTAL=false" in env_example
 
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:
@@ -90,7 +91,7 @@ def test_mgpu_dockerfile_pins_official_ltx2_ref_and_builds_kernels() -> None:
     assert "TORCH_CUDA_ARCH_LIST=8.9" in dockerfile
 
 
-def test_compose_defines_four_profile_workers_with_one_one_two_four_gpu_layout() -> None:
+def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> None:
     compose = read("docker-compose.yml")
 
     expected = {
@@ -106,6 +107,8 @@ def test_compose_defines_four_profile_workers_with_one_one_two_four_gpu_layout()
     assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
     assert 'START_COMFYUI: "false"' in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
+    assert compose.count('profiles: ["workers"]') == 2
+    assert compose.count('profiles: ["mgpu-experimental"]') == 2
 
 
 def test_compose_defines_separate_web_and_dispatcher_services() -> None:
@@ -144,4 +147,5 @@ def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     assert "docker run --rm --gpus" in deploy
     assert "docker compose --env-file .env up -d --build --remove-orphans" in deploy
     assert "services=(control-plane dispatcher web-frontend)" in deploy
+    assert "ENABLE_MGPU_EXPERIMENTAL" in deploy
     assert "nvidia-smi -L" in healthcheck
