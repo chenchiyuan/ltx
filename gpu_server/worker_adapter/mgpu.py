@@ -74,26 +74,29 @@ class LtxMgpuExecutor:
         seed = int(params.get("seed") or _env_int("MGPU_DEFAULT_SEED", 42))
         images = self._prepare_images(payload, attempt_id)
 
-        stream = executor.stream(
-            output_path=str(output_path),
-            prompt=prompt,
-            negative_prompt=str(params.get("negative_prompt") or ""),
-            seed=seed,
-            height=int(params.get("height") or height),
-            width=int(params.get("width") or width),
-            num_frames=int(params.get("num_frames") or frame_count_for_duration(duration_seconds, frame_rate)),
-            frame_rate=frame_rate,
-            num_inference_steps=int(params.get("num_inference_steps") or _env_int("MGPU_NUM_INFERENCE_STEPS", 8)),
-            video_guider_params=self._default_video_guider_params(),
-            audio_guider_params=self._default_audio_guider_params(),
-            images=images,
-            timeout=_env_int("MGPU_JOB_TIMEOUT_SECONDS", 7200),
-        )
         try:
-            for _ in stream:
-                pass
+            stream = executor.stream(
+                output_path=str(output_path),
+                prompt=prompt,
+                negative_prompt=str(params.get("negative_prompt") or ""),
+                seed=seed,
+                height=int(params.get("height") or height),
+                width=int(params.get("width") or width),
+                num_frames=int(params.get("num_frames") or frame_count_for_duration(duration_seconds, frame_rate)),
+                frame_rate=frame_rate,
+                num_inference_steps=int(params.get("num_inference_steps") or _env_int("MGPU_NUM_INFERENCE_STEPS", 8)),
+                video_guider_params=self._default_video_guider_params(),
+                audio_guider_params=self._default_audio_guider_params(),
+                images=images,
+                timeout=_env_int("MGPU_JOB_TIMEOUT_SECONDS", 7200),
+            )
+            try:
+                for _ in stream:
+                    pass
+            finally:
+                stream.drain()
         finally:
-            stream.drain()
+            self.shutdown()
 
         if not output_path.exists() or output_path.stat().st_size == 0:
             raise RuntimeError(f"LTX MGPU completed without output: {output_path}")
@@ -103,6 +106,7 @@ class LtxMgpuExecutor:
         if self._controller is not None:
             self._controller.shutdown(graceful_timeout=60.0)
             self._controller = None
+            self._vae_queue = None
 
     def _ensure_controller(self):
         if self._controller is not None and self._controller.is_alive:
