@@ -15,6 +15,7 @@ from typing import Any
 
 from .comfyui import ComfyUIClient, inject_assignment_parameters, load_workflow_api, run_prompt_and_fetch_video
 from .storage import LocalSharedStorage
+from .workflow_inputs import ImagePreprocessError, image_contract_from_payload, prepare_workflow_image_input
 
 
 def env_int(name: str, default: int) -> int:
@@ -193,13 +194,14 @@ class WorkerRuntime:
         input_asset = payload.get("input_asset")
         if not input_asset:
             return None
-        source_uri = input_asset["storage_uri"]
-        suffix = _suffix_for_content_type(input_asset.get("content_type") or "")
         input_dir = Path(os.getenv("COMFYUI_INPUT_DIR", "/opt/comfyui/input"))
-        input_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{attempt_id}_input{suffix}"
-        (input_dir / filename).write_bytes(self.storage.read_bytes(source_uri))
-        return filename
+        image_path = prepare_workflow_image_input(
+            image_bytes=self.storage.read_bytes(input_asset["storage_uri"]),
+            output_dir=input_dir,
+            filename_stem=f"{attempt_id}_input",
+            contract=image_contract_from_payload(payload),
+        )
+        return image_path.name
 
     def _post_event(self, attempt_id: str, payload: dict[str, Any]) -> None:
         post_json_without_response(
@@ -378,15 +380,9 @@ def main() -> None:
     worker_server.shutdown()
 
 
-def _suffix_for_content_type(content_type: str) -> str:
-    if content_type == "image/png":
-        return ".png"
-    if content_type in {"image/jpeg", "image/jpg"}:
-        return ".jpg"
-    return ".image"
-
-
 def _classify_error(exc: Exception) -> str:
+    if isinstance(exc, ImagePreprocessError):
+        return "invalid_input"
     if isinstance(exc, (TimeoutError, urllib.error.URLError, OSError)):
         return "transient"
     if isinstance(exc, ValueError):
@@ -395,6 +391,8 @@ def _classify_error(exc: Exception) -> str:
 
 
 def _error_code(exc: Exception) -> str:
+    if isinstance(exc, ImagePreprocessError):
+        return "IMAGE_PREPROCESS_FAILED"
     if isinstance(exc, TimeoutError):
         return "COMFYUI_TIMEOUT"
     if isinstance(exc, urllib.error.URLError):

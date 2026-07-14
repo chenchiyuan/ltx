@@ -1,4 +1,7 @@
 from datetime import timedelta
+from io import BytesIO
+import sys
+import types
 
 from gpu_server.worker_adapter.mgpu import dimensions_for_aspect_ratio
 from gpu_server.worker_adapter.mgpu import frame_count_for_duration
@@ -76,3 +79,76 @@ def test_mgpu_executor_shutdowns_controller_after_task(tmp_path, monkeypatch) ->
     assert fake_controller.shutdown_called is True
     assert executor._controller is None
     assert executor._vae_queue is None
+
+
+def test_mgpu_executor_preprocesses_grayscale_input_with_workflow_contract(tmp_path, monkeypatch) -> None:
+    from PIL import Image
+
+    captured: dict = {}
+
+    class ImageConditioningInput:
+        def __init__(self, path: str, frame_index: int, strength: float) -> None:
+            self.path = path
+            self.frame_index = frame_index
+            self.strength = strength
+
+    ltx_pipelines = types.ModuleType("ltx_pipelines")
+    utils = types.ModuleType("ltx_pipelines.utils")
+    args = types.ModuleType("ltx_pipelines.utils.args")
+    args.ImageConditioningInput = ImageConditioningInput
+    monkeypatch.setitem(sys.modules, "ltx_pipelines", ltx_pipelines)
+    monkeypatch.setitem(sys.modules, "ltx_pipelines.utils", utils)
+    monkeypatch.setitem(sys.modules, "ltx_pipelines.utils.args", args)
+
+    class FakeStream:
+        def __iter__(self):
+            return iter([None])
+
+        def drain(self) -> None:
+            return None
+
+    class FakeRunner:
+        def stream(self, **kwargs):
+            captured.update(kwargs)
+            with open(kwargs["output_path"], "wb") as output:
+                output.write(b"video")
+            return FakeStream()
+
+    class FakeController:
+        def shutdown(self, graceful_timeout: float) -> None:
+            return None
+
+    class FakeStorage:
+        def read_bytes(self, storage_uri: str) -> bytes:
+            assert storage_uri == "local://input"
+            image = Image.new("L", (8, 6), color=128)
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+
+    executor = LtxMgpuExecutor(storage=FakeStorage())
+
+    def ensure_controller():
+        executor._controller = FakeController()
+        return FakeRunner()
+
+    monkeypatch.setenv("MGPU_OUTPUT_DIR", str(tmp_path / "outputs"))
+    monkeypatch.setenv("MGPU_INPUT_DIR", str(tmp_path / "inputs"))
+    monkeypatch.setattr(executor, "_ensure_controller", ensure_controller)
+    monkeypatch.setattr(executor, "_default_video_guider_params", lambda: {})
+    monkeypatch.setattr(executor, "_default_audio_guider_params", lambda: {})
+
+    result = executor.execute(
+        {
+            "request_params": {"prompt": "hello", "duration_seconds": 1},
+            "workflow_input_contract": {"image": {"color_mode": "RGB", "output_format": "png"}},
+            "input_asset": {"storage_uri": "local://input", "content_type": "image/png"},
+        },
+        "att_test",
+    )
+
+    assert result == b"video"
+    image_input = captured["images"][0]
+    assert image_input.path.endswith("att_test_input.png")
+    converted = Image.open(image_input.path)
+    assert converted.mode == "RGB"

@@ -379,12 +379,23 @@ def _build_worker_assignment(
         "mode": task.mode,
         "profile": task.profile,
         "workflow_version_id": task.workflow_version_id,
+        "workflow_input_contract": _workflow_input_contract(),
         "request_params": task.request_params,
         "input_asset": image_asset,
         "output": {
             "storage_uri": output_storage_uri,
             "content_type": "video/mp4",
         },
+    }
+
+
+def _workflow_input_contract() -> dict:
+    return {
+        "image": {
+            "color_mode": "RGB",
+            "output_format": "png",
+            "alpha_background": "white",
+        }
     }
 
 

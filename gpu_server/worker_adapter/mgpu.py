@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import shutil
-import tempfile
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+
+from .workflow_inputs import image_contract_from_payload, prepare_workflow_image_input
 
 
 def frame_count_for_duration(duration_seconds: int, frame_rate: float) -> int:
@@ -185,13 +185,12 @@ class LtxMgpuExecutor:
         from ltx_pipelines.utils.args import ImageConditioningInput
 
         input_dir = Path(os.getenv("MGPU_INPUT_DIR", "/tmp/ltx-mgpu-inputs"))
-        input_dir.mkdir(parents=True, exist_ok=True)
-        suffix = _suffix_for_content_type(input_asset.get("content_type") or "")
-        image_path = input_dir / f"{attempt_id}_input{suffix}"
-        with tempfile.NamedTemporaryFile(dir=input_dir, delete=False) as temp_file:
-            temp_file.write(self.storage.read_bytes(input_asset["storage_uri"]))
-            temp_name = temp_file.name
-        shutil.move(temp_name, image_path)
+        image_path = prepare_workflow_image_input(
+            image_bytes=self.storage.read_bytes(input_asset["storage_uri"]),
+            output_dir=input_dir,
+            filename_stem=f"{attempt_id}_input",
+            contract=image_contract_from_payload(payload),
+        )
         return [ImageConditioningInput(str(image_path), 0, float(os.getenv("MGPU_IMAGE_STRENGTH", "0.8")))]
 
     def _default_video_guider_params(self):
@@ -204,10 +203,3 @@ class LtxMgpuExecutor:
 
         return LTX_2_3_PARAMS.audio_guider_params
 
-
-def _suffix_for_content_type(content_type: str) -> str:
-    if content_type == "image/png":
-        return ".png"
-    if content_type in {"image/jpeg", "image/jpg"}:
-        return ".jpg"
-    return ".image"

@@ -445,6 +445,13 @@ def test_gpu_worker_dispatch_matches_ultra_profile_and_records_gpu_seconds(tmp_p
         assert dispatched.json()["worker_id"] == registered_ultra["worker_id"]
         attempt_id = dispatched.json()["attempt_id"]
         assert captured["payload"]["profile"] == "ultra"
+        assert captured["payload"]["workflow_input_contract"] == {
+            "image": {
+                "color_mode": "RGB",
+                "output_format": "png",
+                "alpha_background": "white",
+            }
+        }
 
         output_uri = captured["payload"]["output"]["storage_uri"]
         client.app.state.ltx.storage.write_bytes(output_uri, b"ultra video")
