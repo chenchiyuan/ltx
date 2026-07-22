@@ -242,6 +242,30 @@ def test_asset_upload_roundtrip_and_ownership(client):
     _assert_error(response, 404, "ASSET_NOT_FOUND")
 
 
+def test_asset_upload_rejects_files_larger_than_32_mb(client):
+    max_upload_bytes = 32 * 1024 * 1024
+    response = client.post(
+        "/v1/assets/uploads",
+        json={"filename": "large.png", "content_type": "image/png", "size_bytes": max_upload_bytes + 1},
+        headers=AUTH,
+    )
+    _assert_error(response, 413, "UPLOAD_TOO_LARGE")
+
+    created = client.post(
+        "/v1/assets/uploads",
+        json={"filename": "small.png", "content_type": "image/png", "size_bytes": 1},
+        headers=AUTH,
+    )
+    assert created.status_code == 200
+    asset_id = created.json()["asset_id"]
+    response = client.put(
+        f"/v1/assets/{asset_id}/content",
+        content=b"x",
+        headers={**AUTH, "Content-Length": str(max_upload_bytes + 1)},
+    )
+    _assert_error(response, 413, "UPLOAD_TOO_LARGE")
+
+
 def test_worker_registry_registers_heartbeats_and_admin_lists_workers(client):
     first_worker_id = None
     for gpu_index in range(8):

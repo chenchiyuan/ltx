@@ -1,6 +1,7 @@
 const API_BASE = "/api";
 const recentKey = "ltx.recentTasks";
 const MAX_IMAGE_CONDITIONS = 4;
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 const IMAGE_PREVIEW_LABELS = {
   inputImage: "REFERENCE",
   startImage: "START",
@@ -254,6 +255,9 @@ function addMiddleReference() {
 }
 
 async function uploadInputImage(file) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("Image must be 32 MB or smaller");
+  }
   const created = await requestJson("/v1/assets/uploads", {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },

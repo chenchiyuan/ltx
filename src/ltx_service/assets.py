@@ -10,6 +10,12 @@ from .models import ApiKey, Asset
 from .storage import ObjectStorageAdapter
 
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+
+def ensure_upload_size(size_bytes: int) -> None:
+    if size_bytes > MAX_UPLOAD_BYTES:
+        raise api_error(413, "UPLOAD_TOO_LARGE", "Image must be 32 MB or smaller")
 
 
 def create_upload_asset(
@@ -20,6 +26,7 @@ def create_upload_asset(
     content_type: str,
     size_bytes: int,
 ) -> Asset:
+    ensure_upload_size(size_bytes)
     if content_type not in ALLOWED_IMAGE_TYPES:
         raise api_error(422, "REQUEST_INVALID_PARAMETER", f"Unsupported content_type: {content_type}")
     asset_id = new_id("ast")
@@ -39,6 +46,7 @@ def create_upload_asset(
 
 
 def upload_asset_content(session: Session, storage: ObjectStorageAdapter, api_key: ApiKey, asset_id: str, data: bytes) -> Asset:
+    ensure_upload_size(len(data))
     asset = get_owned_asset(session, api_key, asset_id)
     if asset.kind != "input":
         raise api_error(422, "REQUEST_INVALID_PARAMETER", "Only input assets can be uploaded by API clients")

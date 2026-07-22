@@ -160,10 +160,13 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     index = read_root("web_frontend/index.html")
 
     assert "location /api/" in nginx
+    assert "client_max_body_size 32m;" in nginx
     assert "proxy_pass http://control-plane:8000" in nginx
     assert 'const API_BASE = "/api";' in app
     assert "/v1/video-generations" in app
     assert "/v1/assets/uploads" in app
+    assert "MAX_UPLOAD_BYTES = 32 * 1024 * 1024" in app
+    assert "Image must be 32 MB or smaller" in app
     assert 'value="vip"' in index
     assert 'value="fast"' not in index
     assert 'value="ultra"' not in index

@@ -7,7 +7,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .assets import create_upload_asset, expires_at, get_owned_asset, upload_asset_content
+from .assets import (
+    create_upload_asset,
+    ensure_upload_size,
+    expires_at,
+    get_owned_asset,
+    upload_asset_content,
+)
 from .dependencies import AppState, require_admin_token, require_api_key, require_worker_token
 from .errors import api_error
 from .executor import ExecutorAdapter
@@ -129,6 +135,9 @@ def build_router(state: AppState, get_session, executor: ExecutorAdapter) -> API
         api_key: ApiKey = Depends(api_auth),
         session: Session = Depends(get_session),
     ):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            ensure_upload_size(int(content_length))
         data = await request.body()
         asset = upload_asset_content(session, state.storage, api_key, asset_id, data)
         return {"asset_id": asset.id, "status": asset.status, "size_bytes": asset.size_bytes}
