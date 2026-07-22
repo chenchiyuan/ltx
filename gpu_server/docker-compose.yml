@@ -49,7 +49,7 @@ x-mgpu-worker-env: &mgpu_worker_env
   MODEL_DIR: /opt/ltx/models
   MGPU_CHECKPOINT_PATH: /opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors
   MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}
-  MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2.3-22b-distilled-fp8.safetensors}
+  MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2-19b-distilled-fp8.safetensors}
   MGPU_DISTILLED_LORA_PATH: /opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
   MGPU_SPATIAL_UPSAMPLER_PATH: /opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
   MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/gemma}

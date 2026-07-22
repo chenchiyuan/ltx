@@ -61,6 +61,7 @@ def test_env_example_contains_phase2_contract_variables() -> None:
         "WORKER_SERVICES",
         "GPU_LAYOUT",
         "MGPU_GEMMA_HF_REPO",
+        "MGPU_DISTILLED_HF_REPO",
         "LTX_SPATIAL_UPSAMPLER_FILE",
         "MGPU_DISTILLED_FILE",
         "MODEL_DIR",
@@ -74,14 +75,15 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
     assert "MGPU_GEMMA_HF_REPO=google/gemma-3-12b-it" in env_example
+    assert "MGPU_DISTILLED_HF_REPO=Lightricks/LTX-2" in env_example
     assert "LTX_SPATIAL_UPSAMPLER_FILE=ltx-2.3-spatial-upscaler-x2-1.1.safetensors" in env_example
-    assert "MGPU_DISTILLED_FILE=ltx-2.3-22b-distilled-fp8.safetensors" in env_example
+    assert "MGPU_DISTILLED_FILE=ltx-2-19b-distilled-fp8.safetensors" in env_example
     assert "ENABLE_MGPU_EXPERIMENTAL=true" in env_example
     assert "WORKER_COUNT=5" in env_example
     assert "WORKER_SERVICES=worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-vip" in env_example
     assert 'GPU_LAYOUT="fast:0;fast:1;fast:2;fast:3;vip:4,5,6,7"' in env_example
     assert "MGPU_PIPELINE=distilled" in env_example
-    assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2.3-22b-distilled-fp8.safetensors" in env_example
+    assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2-19b-distilled-fp8.safetensors" in env_example
 
 
 def test_worker_runtime_passes_configured_comfyui_extra_args() -> None:
@@ -131,7 +133,7 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
     assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
     assert 'START_COMFYUI: "false"' in compose
     assert "MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}" in compose
-    assert "MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2.3-22b-distilled-fp8.safetensors}" in compose
+    assert "MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2-19b-distilled-fp8.safetensors}" in compose
     assert "${MGPU_DISTILLED_CACHE_DIR:-/opt/ltx/models/checkpoints}:/fp8:ro" in compose
     assert "${MGPU_GEMMA_CACHE_DIR:-/opt/ltx/models/gemma-3-12b-local}:/gemma:ro" in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose

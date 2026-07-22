@@ -154,7 +154,7 @@ class LtxMgpuExecutor:
 
         checkpoint_path = _required_path(
             "MGPU_DISTILLED_CHECKPOINT_PATH",
-            "/opt/ltx/models/checkpoints/ltx-2.3-22b-distilled-fp8.safetensors",
+            "/opt/ltx/models/checkpoints/ltx-2-19b-distilled-fp8.safetensors",
         )
         self._vae_queue = torch.multiprocessing.get_context("spawn").SimpleQueue()
         controller = MGPUController(FixedDistilledRunner)
@@ -202,4 +202,3 @@ class LtxMgpuExecutor:
         from ltx_pipelines.utils.constants import LTX_2_3_PARAMS
 
         return LTX_2_3_PARAMS.audio_guider_params
-

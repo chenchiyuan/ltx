@@ -16,12 +16,13 @@ MODEL_DIR="${MODEL_DIR:-/opt/ltx/models}"
 LTX_REPO="${LTX_HF_REPO:-Lightricks/LTX-2.3}"
 GEMMA_REPO="${GEMMA_HF_REPO:-Comfy-Org/ltx-2}"
 MGPU_GEMMA_REPO="${MGPU_GEMMA_HF_REPO:-google/gemma-3-12b-it}"
+MGPU_DISTILLED_REPO="${MGPU_DISTILLED_HF_REPO:-Lightricks/LTX-2}"
 LTX_CHECKPOINT_FILE="${LTX_CHECKPOINT_FILE:-ltx-2.3-22b-dev.safetensors}"
 LTX_LORA_FILE="${LTX_LORA_FILE:-ltx-2.3-22b-distilled-lora-384-1.1.safetensors}"
 LTX_SPATIAL_UPSAMPLER_FILE="${LTX_SPATIAL_UPSAMPLER_FILE:-ltx-2.3-spatial-upscaler-x2-1.1.safetensors}"
 GEMMA_HF_FILE="${GEMMA_HF_FILE:-split_files/text_encoders/gemma_3_12B_it.safetensors}"
 GEMMA_TARGET_FILE="${GEMMA_TARGET_FILE:-comfy_gemma_3_12B_it.safetensors}"
-MGPU_DISTILLED_FILE="${MGPU_DISTILLED_FILE:-ltx-2.3-22b-distilled-fp8.safetensors}"
+MGPU_DISTILLED_FILE="${MGPU_DISTILLED_FILE:-ltx-2-19b-distilled-fp8.safetensors}"
 MGPU_DISTILLED_CACHE_DIR="${MGPU_DISTILLED_CACHE_DIR:-${MODEL_DIR}/checkpoints}"
 MGPU_GEMMA_CACHE_DIR="${MGPU_GEMMA_CACHE_DIR:-${MODEL_DIR}/gemma-3-12b-local}"
 ENABLE_MGPU_EXPERIMENTAL="${ENABLE_MGPU_EXPERIMENTAL:-false}"
@@ -59,7 +60,7 @@ if [ "${mgpu_enabled}" = "true" ]; then
   if [ ! -s "${MGPU_DISTILLED_CACHE_DIR}/${MGPU_DISTILLED_FILE}" ]; then
     missing+=("${MGPU_DISTILLED_CACHE_DIR}/${MGPU_DISTILLED_FILE}")
   fi
-  for file in config.json model.safetensors.index.json tokenizer.json; do
+  for file in config.json model.safetensors tokenizer.json; do
     if [ ! -s "${MGPU_GEMMA_CACHE_DIR}/${file}" ]; then
       missing+=("${MGPU_GEMMA_CACHE_DIR}/${file}")
     fi
@@ -188,7 +189,7 @@ EOF
 
 if [ "${mgpu_enabled}" = "true" ]; then
   download_file \
-    "${LTX_REPO}" \
+    "${MGPU_DISTILLED_REPO}" \
     "${MGPU_DISTILLED_CACHE_DIR}" \
     /fp8 \
     "${MGPU_DISTILLED_FILE}" \
@@ -196,7 +197,7 @@ if [ "${mgpu_enabled}" = "true" ]; then
     worker-vip
 
   missing_gemma=false
-  for file in config.json model.safetensors.index.json tokenizer.json; do
+  for file in config.json model.safetensors tokenizer.json; do
     if [ ! -s "${MGPU_GEMMA_CACHE_DIR}/${file}" ]; then
       missing_gemma=true
     fi
@@ -223,7 +224,7 @@ if [ "${mgpu_enabled}" = "true" ]; then
     echo "Still missing: ${MGPU_DISTILLED_CACHE_DIR}/${MGPU_DISTILLED_FILE}" >&2
     exit 1
   fi
-  for file in config.json model.safetensors.index.json tokenizer.json; do
+  for file in config.json model.safetensors tokenizer.json; do
     if [ ! -s "${MGPU_GEMMA_CACHE_DIR}/${file}" ]; then
       echo "Still missing: ${MGPU_GEMMA_CACHE_DIR}/${file}" >&2
       exit 1

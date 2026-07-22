@@ -121,7 +121,7 @@ HF_TOKEN=... ./scripts/download_models.sh
 | `${MODEL_DIR}/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors` | ComfyUI distilled LoRA |
 | `${MODEL_DIR}/text_encoders/comfy_gemma_3_12B_it.safetensors` | ComfyUI Gemma text encoder |
 | `${MODEL_DIR}/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | LTX spatial upsampler |
-| `${MGPU_DISTILLED_CACHE_DIR}/ltx-2.3-22b-distilled-fp8.safetensors` | vip/MGPU distilled FP8 checkpoint |
+| `${MGPU_DISTILLED_CACHE_DIR}/ltx-2-19b-distilled-fp8.safetensors` | vip/MGPU distilled FP8 checkpoint from `Lightricks/LTX-2` |
 | `${MGPU_GEMMA_CACHE_DIR}/config.json` 等 Gemma 文件 | vip/MGPU official Gemma root |
 
 `MGPU_DISTILLED_CACHE_DIR` 和 `MGPU_GEMMA_CACHE_DIR` 可以放在普通磁盘。当前测试机为了降低加载时间，把它们放到 `/dev/shm`，这只是性能优化，不是架构要求。
