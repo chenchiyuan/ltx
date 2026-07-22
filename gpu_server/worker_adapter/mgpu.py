@@ -178,20 +178,42 @@ class LtxMgpuExecutor:
         return controller
 
     def _prepare_images(self, payload: dict[str, Any], attempt_id: str) -> list[Any]:
-        input_asset = payload.get("input_asset")
-        if not input_asset:
+        input_assets = payload.get("input_assets") or []
+        legacy_input = not input_assets and payload.get("input_asset")
+        if legacy_input:
+            input_assets = [
+                {
+                    **legacy_input,
+                    "frame_idx": 0,
+                    "strength": float(os.getenv("MGPU_IMAGE_STRENGTH", "0.8")),
+                    "crf": 29,
+                }
+            ]
+        if not input_assets:
             return []
 
         from ltx_pipelines.utils.args import ImageConditioningInput
 
         input_dir = Path(os.getenv("MGPU_INPUT_DIR", "/tmp/ltx-mgpu-inputs"))
-        image_path = prepare_workflow_image_input(
-            image_bytes=self.storage.read_bytes(input_asset["storage_uri"]),
-            output_dir=input_dir,
-            filename_stem=f"{attempt_id}_input",
-            contract=image_contract_from_payload(payload),
-        )
-        return [ImageConditioningInput(str(image_path), 0, float(os.getenv("MGPU_IMAGE_STRENGTH", "0.8")))]
+        contract = image_contract_from_payload(payload)
+        images = []
+        for index, input_asset in enumerate(input_assets):
+            filename_stem = f"{attempt_id}_input" if legacy_input else f"{attempt_id}_input_{index}"
+            image_path = prepare_workflow_image_input(
+                image_bytes=self.storage.read_bytes(input_asset["storage_uri"]),
+                output_dir=input_dir,
+                filename_stem=filename_stem,
+                contract=contract,
+            )
+            images.append(
+                ImageConditioningInput(
+                    str(image_path),
+                    int(input_asset.get("frame_idx", 0)),
+                    float(input_asset.get("strength", os.getenv("MGPU_IMAGE_STRENGTH", "0.8"))),
+                    int(input_asset.get("crf", 29)),
+                )
+            )
+        return images
 
     def _default_video_guider_params(self):
         from ltx_pipelines.utils.constants import LTX_2_3_PARAMS

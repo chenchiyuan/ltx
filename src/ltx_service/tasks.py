@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import re
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -47,12 +48,7 @@ def create_video_task(
             return existing, estimated
 
     if payload["mode"] == "image_to_video":
-        image_asset_id = payload.get("image_asset_id")
-        if not image_asset_id:
-            raise api_error(422, "REQUEST_IMAGE_REQUIRED", "image_asset_id is required for image_to_video")
-        asset = session.get(Asset, image_asset_id)
-        if not asset or asset.api_key_id != api_key.id or asset.status != "uploaded":
-            raise api_error(422, "REQUEST_INVALID_PARAMETER", "image_asset_id is invalid or not uploaded")
+        _resolve_image_conditions(session, api_key.id, payload)
 
     if api_key.quota_task_limit is not None:
         task_count = session.scalar(select(func.count()).select_from(VideoTask).where(VideoTask.api_key_id == api_key.id))
@@ -361,17 +357,7 @@ def _build_worker_assignment(
     task: VideoTask,
     attempt: TaskAttempt,
 ) -> dict:
-    image_asset = None
-    image_asset_id = task.request_params.get("image_asset_id")
-    if image_asset_id:
-        asset = session.get(Asset, image_asset_id)
-        if asset:
-            image_asset = {
-                "asset_id": asset.id,
-                "storage_uri": asset.storage_uri,
-                "content_type": asset.content_type,
-                "size_bytes": asset.size_bytes,
-            }
+    input_assets = _resolve_image_conditions(session, task.api_key_id, task.request_params) if task.mode == "image_to_video" else []
     output_storage_uri = storage.uri_for("outputs", task.id, f"{attempt.id}.mp4")
     return {
         "attempt_id": attempt.id,
@@ -381,12 +367,101 @@ def _build_worker_assignment(
         "workflow_version_id": task.workflow_version_id,
         "workflow_input_contract": _workflow_input_contract(),
         "request_params": task.request_params,
-        "input_asset": image_asset,
+        "input_asset": input_assets[0] if input_assets else None,
+        "input_assets": input_assets,
         "output": {
             "storage_uri": output_storage_uri,
             "content_type": "video/mp4",
         },
     }
+
+
+def _resolve_image_conditions(session: Session, api_key_id: str, payload: dict) -> list[dict]:
+    image_asset_id = payload.get("image_asset_id")
+    image_conditions = payload.get("image_conditions") or []
+    if image_asset_id and image_conditions:
+        raise api_error(
+            422,
+            "REQUEST_IMAGE_CONTRACT_CONFLICT",
+            "image_asset_id and image_conditions cannot be used together",
+        )
+    if image_asset_id:
+        image_conditions = [{"asset_id": image_asset_id, "frame_idx": 0, "strength": 0.8, "crf": 29}]
+    if not image_conditions:
+        raise api_error(
+            422,
+            "REQUEST_IMAGE_REQUIRED",
+            "image_asset_id or image_conditions is required for image_to_video",
+        )
+    if payload.get("image_conditions") and payload.get("profile") != "vip":
+        raise api_error(
+            422,
+            "REQUEST_PROFILE_UNSUPPORTED",
+            "image_conditions currently requires the vip profile",
+        )
+
+    frame_rate = float(payload.get("frame_rate") or 24)
+    duration_seconds = int(payload.get("duration_seconds") or 5)
+    last_frame_idx = _frame_count_for_duration(duration_seconds, frame_rate) - 1
+    resolved: list[dict] = []
+    used_frame_indices: set[int] = set()
+    for condition in image_conditions:
+        frame_idx = _resolve_frame_idx(condition, last_frame_idx)
+        if frame_idx > last_frame_idx:
+            raise api_error(
+                422,
+                "REQUEST_IMAGE_FRAME_OUT_OF_RANGE",
+                f"image condition frame_idx must be between 0 and {last_frame_idx}",
+            )
+        if frame_idx in used_frame_indices:
+            raise api_error(
+                422,
+                "REQUEST_IMAGE_FRAME_DUPLICATE",
+                f"multiple image conditions resolve to frame_idx {frame_idx}",
+            )
+        used_frame_indices.add(frame_idx)
+
+        asset = session.get(Asset, condition["asset_id"])
+        if not asset or asset.api_key_id != api_key_id or asset.status != "uploaded":
+            raise api_error(422, "REQUEST_INVALID_PARAMETER", "image condition asset is invalid or not uploaded")
+        resolved.append(
+            {
+                "asset_id": asset.id,
+                "storage_uri": asset.storage_uri,
+                "content_type": asset.content_type,
+                "size_bytes": asset.size_bytes,
+                "frame_idx": frame_idx,
+                "strength": float(condition.get("strength", 0.8)),
+                "crf": int(condition.get("crf", 29)),
+            }
+        )
+
+    if 0 not in used_frame_indices:
+        raise api_error(
+            422,
+            "REQUEST_IMAGE_START_REQUIRED",
+            "image_conditions must include a condition at the first frame",
+        )
+    return resolved
+
+
+def _resolve_frame_idx(condition: dict, last_frame_idx: int) -> int:
+    if condition.get("frame_idx") is not None:
+        return int(condition["frame_idx"])
+    position = str(condition.get("position") or "").strip().lower()
+    if position == "start":
+        return 0
+    if position == "end":
+        return last_frame_idx
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)%", position)
+    if not match:
+        raise api_error(422, "REQUEST_INVALID_PARAMETER", "image condition position is invalid")
+    return round(last_frame_idx * float(match.group(1)) / 100)
+
+
+def _frame_count_for_duration(duration_seconds: int, frame_rate: float) -> int:
+    raw_frames = max(8, int(duration_seconds * frame_rate))
+    return (raw_frames // 8) * 8 + 1
 
 
 def _workflow_input_contract() -> dict:

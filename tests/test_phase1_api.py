@@ -662,6 +662,97 @@ def test_image_to_video_requires_uploaded_asset_and_succeeds(client):
     assert result.json()["status"] == "succeeded"
 
 
+def test_image_to_video_accepts_multiple_reference_frames_and_dispatches_normalized_assets(tmp_path, monkeypatch):
+    captured: dict = {}
+
+    class FakeResponse:
+        status = 202
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"status":"accepted"}'
+
+    def fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with _gpu_client(tmp_path) as client:
+        worker_payload = _worker_payload(0, profiles=["vip"])
+        worker_payload["capabilities"]["assign_url"] = "http://worker-vip:9000/worker/attempts"
+        client.post("/internal/workers/register", json=worker_payload, headers=WORKER)
+
+        asset_ids = [_upload_image(client) for _ in range(3)]
+        payload = _multi_image_payload(asset_ids, profile="vip")
+        payload["image_conditions"][0].pop("position")
+        payload["image_conditions"][0]["frame_idx"] = 0
+        created = client.post(
+            "/v1/video-generations",
+            json=payload,
+            headers=AUTH,
+        )
+        assert created.status_code == 200
+
+        dispatched = client.post("/internal/dispatch/run-once", headers=ADMIN)
+        assert dispatched.status_code == 200
+        assert dispatched.json()["dispatched"] is True
+
+        assignment = captured["payload"]
+        assert [item["asset_id"] for item in assignment["input_assets"]] == asset_ids
+        assert [item["frame_idx"] for item in assignment["input_assets"]] == [0, 60, 120]
+        assert [item["strength"] for item in assignment["input_assets"]] == [0.9, 0.7, 0.8]
+        assert [item["crf"] for item in assignment["input_assets"]] == [29, 30, 29]
+        assert assignment["input_asset"] == assignment["input_assets"][0]
+
+
+def test_image_to_video_rejects_invalid_multi_reference_contract(client):
+    asset_ids = [_upload_image(client) for _ in range(5)]
+
+    both_contracts = _multi_image_payload(asset_ids[:2])
+    both_contracts["image_asset_id"] = asset_ids[0]
+    response = client.post("/v1/video-generations", json=both_contracts, headers=AUTH)
+    _assert_error(response, 422, "REQUEST_IMAGE_CONTRACT_CONFLICT")
+
+    no_start = _multi_image_payload(asset_ids[:2])
+    no_start["image_conditions"][0]["position"] = "25%"
+    response = client.post("/v1/video-generations", json=no_start, headers=AUTH)
+    _assert_error(response, 422, "REQUEST_IMAGE_START_REQUIRED")
+
+    duplicate_frame = _multi_image_payload(asset_ids[:2])
+    duplicate_frame["image_conditions"][1]["position"] = "start"
+    response = client.post("/v1/video-generations", json=duplicate_frame, headers=AUTH)
+    _assert_error(response, 422, "REQUEST_IMAGE_FRAME_DUPLICATE")
+
+    out_of_range = _multi_image_payload(asset_ids[:1])
+    out_of_range["image_conditions"][0].pop("position")
+    out_of_range["image_conditions"][0]["frame_idx"] = 121
+    response = client.post("/v1/video-generations", json=out_of_range, headers=AUTH)
+    _assert_error(response, 422, "REQUEST_IMAGE_FRAME_OUT_OF_RANGE")
+
+    too_many = _multi_image_payload(asset_ids)
+    response = client.post("/v1/video-generations", json=too_many, headers=AUTH)
+    assert response.status_code == 422
+
+    unsupported_profile = _multi_image_payload(asset_ids[:2], profile="fast")
+    response = client.post("/v1/video-generations", json=unsupported_profile, headers=AUTH)
+    _assert_error(response, 422, "REQUEST_PROFILE_UNSUPPORTED")
+
+
+def test_image_to_video_rejects_invalid_multi_reference_asset(client):
+    asset_id = _upload_image(client)
+    payload = _multi_image_payload([asset_id, "ast_missing"])
+
+    response = client.post("/v1/video-generations", json=payload, headers=AUTH)
+
+    _assert_error(response, 422, "REQUEST_INVALID_PARAMETER")
+
+
 def test_cancel_queued_task_and_reject_terminal_cancel(client):
     created = client.post("/v1/video-generations", json=_text_payload(prompt="cancel me"), headers=AUTH)
     assert created.status_code == 200
@@ -844,6 +935,29 @@ def _image_payload(image_asset_id: str | None = None) -> dict:
     if image_asset_id:
         payload["image_asset_id"] = image_asset_id
     return payload
+
+
+def _multi_image_payload(asset_ids: list[str], profile: str = "vip") -> dict:
+    positions = ["start", "50%", "end", "75%", "25%"]
+    strengths = [0.9, 0.7, 0.8, 0.6, 0.5]
+    conditions = []
+    for index, asset_id in enumerate(asset_ids):
+        condition = {
+            "asset_id": asset_id,
+            "position": positions[index],
+            "strength": strengths[index],
+        }
+        if index == 1:
+            condition["crf"] = 30
+        conditions.append(condition)
+    return {
+        "mode": "image_to_video",
+        "prompt": "animate multiple references",
+        "profile": profile,
+        "duration_seconds": 5,
+        "aspect_ratio": "16:9",
+        "image_conditions": conditions,
+    }
 
 
 def _worker_payload(gpu_index: int, profiles: list[str] | None = None) -> dict:

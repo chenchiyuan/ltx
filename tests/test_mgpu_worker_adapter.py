@@ -1,5 +1,6 @@
 from datetime import timedelta
 from io import BytesIO
+from pathlib import Path
 import sys
 import types
 
@@ -87,10 +88,11 @@ def test_mgpu_executor_preprocesses_grayscale_input_with_workflow_contract(tmp_p
     captured: dict = {}
 
     class ImageConditioningInput:
-        def __init__(self, path: str, frame_index: int, strength: float) -> None:
+        def __init__(self, path: str, frame_index: int, strength: float, crf: int = 29) -> None:
             self.path = path
             self.frame_index = frame_index
             self.strength = strength
+            self.crf = crf
 
     ltx_pipelines = types.ModuleType("ltx_pipelines")
     utils = types.ModuleType("ltx_pipelines.utils")
@@ -152,3 +154,54 @@ def test_mgpu_executor_preprocesses_grayscale_input_with_workflow_contract(tmp_p
     assert image_input.path.endswith("att_test_input.png")
     converted = Image.open(image_input.path)
     assert converted.mode == "RGB"
+
+
+def test_mgpu_executor_prepares_multiple_reference_frames(tmp_path, monkeypatch) -> None:
+    from PIL import Image
+
+    class ImageConditioningInput:
+        def __init__(self, path: str, frame_index: int, strength: float, crf: int = 29) -> None:
+            self.path = path
+            self.frame_index = frame_index
+            self.strength = strength
+            self.crf = crf
+
+    ltx_pipelines = types.ModuleType("ltx_pipelines")
+    utils = types.ModuleType("ltx_pipelines.utils")
+    args = types.ModuleType("ltx_pipelines.utils.args")
+    args.ImageConditioningInput = ImageConditioningInput
+    monkeypatch.setitem(sys.modules, "ltx_pipelines", ltx_pipelines)
+    monkeypatch.setitem(sys.modules, "ltx_pipelines.utils", utils)
+    monkeypatch.setitem(sys.modules, "ltx_pipelines.utils.args", args)
+
+    image = Image.new("RGB", (8, 6), color=(128, 64, 32))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    class FakeStorage:
+        def read_bytes(self, storage_uri: str) -> bytes:
+            assert storage_uri in {"local://start", "local://middle", "local://end"}
+            return buffer.getvalue()
+
+    executor = LtxMgpuExecutor(storage=FakeStorage())
+    monkeypatch.setenv("MGPU_INPUT_DIR", str(tmp_path / "inputs"))
+
+    images = executor._prepare_images(
+        {
+            "input_assets": [
+                {"storage_uri": "local://start", "frame_idx": 0, "strength": 0.9, "crf": 29},
+                {"storage_uri": "local://middle", "frame_idx": 60, "strength": 0.7, "crf": 30},
+                {"storage_uri": "local://end", "frame_idx": 120, "strength": 0.8, "crf": 29},
+            ]
+        },
+        "att_multi",
+    )
+
+    assert [item.frame_index for item in images] == [0, 60, 120]
+    assert [item.strength for item in images] == [0.9, 0.7, 0.8]
+    assert [item.crf for item in images] == [29, 30, 29]
+    assert [Path(item.path).name for item in images] == [
+        "att_multi_input_0.png",
+        "att_multi_input_1.png",
+        "att_multi_input_2.png",
+    ]

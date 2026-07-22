@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class UploadCreate(BaseModel):
@@ -17,11 +18,35 @@ class UploadCreated(BaseModel):
     expires_at: str
 
 
+class ImageCondition(BaseModel):
+    asset_id: str = Field(min_length=1)
+    position: str | None = None
+    frame_idx: int | None = Field(default=None, ge=0)
+    strength: float = Field(default=0.8, ge=0, le=1)
+    crf: int = Field(default=29, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_frame_location(self):
+        if (self.position is None) == (self.frame_idx is None):
+            raise ValueError("exactly one of position or frame_idx is required")
+        if self.position is None:
+            return self
+
+        position = self.position.strip().lower()
+        if position not in {"start", "end"}:
+            match = re.fullmatch(r"(\d+(?:\.\d+)?)%", position)
+            if not match or float(match.group(1)) > 100:
+                raise ValueError("position must be start, end, or a percentage from 0% to 100%")
+        self.position = position
+        return self
+
+
 class VideoGenerationCreate(BaseModel):
     mode: Literal["text_to_video", "image_to_video"]
     prompt: str = Field(min_length=1)
     negative_prompt: str | None = None
     image_asset_id: str | None = None
+    image_conditions: list[ImageCondition] = Field(default_factory=list, max_length=4)
     profile: Literal["fast", "ultra", "vip", "quality"] = "fast"
     duration_seconds: int = Field(default=5, ge=1, le=60)
     aspect_ratio: str = "16:9"
