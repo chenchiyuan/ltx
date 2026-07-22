@@ -1,10 +1,10 @@
 # LTX Video Service
 
-Phase 1 非 GPU 控制面，用于验证 LTX 文生视频/图生视频服务的 API、任务系统、工作流管理、对象存储边界、重试计数和内部管理能力。
+基于 FastAPI、ComfyUI 和 LTX 2.3 的文生视频/图生视频服务。当前仓库包含控制面、内部 Web 测试前端、GPU worker 适配器和单机 GPU 部署入口。
 
 ## 范围
 
-Phase 1 只包含 web/control 节点：
+已经实现的核心能力：
 
 - FastAPI API-only 服务
 - API Key 认证与资源隔离
@@ -12,12 +12,23 @@ Phase 1 只包含 web/control 节点：
 - 文生视频、图生视频异步任务 API
 - Workflow template/version/profile 管理
 - Task attempt、重试、取消、usage ledger
-- Admin API/HTML、`/health`、`/metrics`
+- Admin API/HTML、内部 Web 测试前端、`/health`、`/metrics`
 - mock/local `ExecutorAdapter`
+- GPU Worker Registry、dispatcher、worker heartbeat
+- ComfyUI 单卡 worker：`fast`
+- LTX-2 MGPU worker：`vip` 四卡 distilled pipeline
+- workflow 输入契约：图生视频输入统一转为 `RGB PNG`
 
-不包含 GPU 服务器、ComfyUI/LTX 真实执行、Kubernetes/GPU Operator、DCGM 或 Worker Registry。
+后续仍未进入当前单机阶段的能力：
+
+- 多 GPU 服务器资源池
+- Kubernetes/GPU Operator/KEDA
+- 独立 MinIO/S3 对象存储部署
+- 复杂组织/团队权限和价格系统
 
 ## 本地启动
+
+本地默认用于控制面开发，不启动真实 GPU worker：
 
 ```bash
 export PYTHONPATH=src
@@ -42,4 +53,23 @@ curl -s http://127.0.0.1:8000/health
 
 ## Phase 2 GPU 服务器
 
-单机 GPU 测试部署入口位于 `gpu_server/`。当前 T-204 提供同机 control plane + GPU worker 容器骨架；真实 LTX workflow 和 ComfyUI 执行适配在后续 T-205/T-206 接入。
+单机 GPU 部署入口位于 `gpu_server/`。
+
+当前推荐 8 卡布局：
+
+- `worker-fast-0..3`：4 个单卡 ComfyUI worker。
+- `worker-vip`：1 个四卡 LTX-2 MGPU worker，使用 GPU `4,5,6,7`。
+- 同机运行 `control-plane`、`dispatcher`、`web-frontend`。
+
+部署路径：
+
+```bash
+cd gpu_server
+cp .env.example .env
+vi .env
+HF_TOKEN=... ./scripts/download_models.sh
+./scripts/deploy.sh
+./scripts/healthcheck.sh
+```
+
+完整部署说明见 `gpu_server/README.md`。

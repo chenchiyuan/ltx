@@ -60,21 +60,35 @@ def test_env_example_contains_phase2_contract_variables() -> None:
         "WORKER_COUNT",
         "WORKER_SERVICES",
         "GPU_LAYOUT",
+        "MGPU_GEMMA_HF_REPO",
+        "LTX_SPATIAL_UPSAMPLER_FILE",
+        "MGPU_DISTILLED_FILE",
         "MODEL_DIR",
         "STORAGE_DIR",
         "WORKER_TOKEN",
+        "COMFYUI_EXTRA_ARGS",
     ]:
         assert f"{variable}=" in env_example
 
     assert "LTX_HF_REPO=Lightricks/LTX-2.3" in env_example
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
+    assert "MGPU_GEMMA_HF_REPO=google/gemma-3-12b-it" in env_example
+    assert "LTX_SPATIAL_UPSAMPLER_FILE=ltx-2.3-spatial-upscaler-x2-1.1.safetensors" in env_example
+    assert "MGPU_DISTILLED_FILE=ltx-2.3-22b-distilled-fp8.safetensors" in env_example
     assert "ENABLE_MGPU_EXPERIMENTAL=true" in env_example
     assert "WORKER_COUNT=5" in env_example
     assert "WORKER_SERVICES=worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-vip" in env_example
     assert 'GPU_LAYOUT="fast:0;fast:1;fast:2;fast:3;vip:4,5,6,7"' in env_example
     assert "MGPU_PIPELINE=distilled" in env_example
     assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2.3-22b-distilled-fp8.safetensors" in env_example
+
+
+def test_worker_runtime_passes_configured_comfyui_extra_args() -> None:
+    runtime = read("worker_adapter/runtime.py")
+
+    assert "import shlex" in runtime
+    assert 'shlex.split(os.getenv("COMFYUI_EXTRA_ARGS", ""))' in runtime
 
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:
@@ -159,6 +173,7 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
 def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     deploy = read("scripts/deploy.sh")
     healthcheck = read("scripts/healthcheck.sh")
+    download_models = read("scripts/download_models.sh")
 
     assert "nvidia-smi" in deploy
     assert "docker run --rm --gpus" in deploy
@@ -167,3 +182,8 @@ def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     assert "ENABLE_MGPU_EXPERIMENTAL" in deploy
     assert "Marked skipped worker offline" in deploy
     assert "nvidia-smi -L" in healthcheck
+    assert "worker-fast-0" in download_models
+    assert "worker-vip" in download_models
+    assert "worker-0 download" not in download_models
+    assert "MGPU_GEMMA_HF_REPO" in download_models
+    assert "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" in download_models

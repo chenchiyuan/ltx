@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -277,6 +278,7 @@ def start_comfyui() -> subprocess.Popen[str] | None:
         "--port",
         port,
     ]
+    command.extend(shlex.split(os.getenv("COMFYUI_EXTRA_ARGS", "")))
     return subprocess.Popen(command, cwd=comfyui_dir, text=True)
 
 
