@@ -144,6 +144,12 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(15, 110, 86, 0.14);
 }
 
+button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 110, 86, 0.14);
+}
+
 .workspace {
   grid-template-columns: minmax(360px, 0.9fr) minmax(460px, 1.1fr);
   align-items: stretch;
@@ -176,6 +182,7 @@ textarea:focus {
 }
 
 .mode,
+.reference-mode-button,
 .primary,
 .secondary {
   border: 1px solid var(--line);
@@ -186,6 +193,7 @@ textarea:focus {
 }
 
 .mode.active,
+.reference-mode-button.active,
 .primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -193,8 +201,15 @@ textarea:focus {
 }
 
 .secondary:hover,
-.mode:hover {
+.mode:hover,
+.reference-mode-button:hover {
   border-color: var(--accent);
+}
+
+button:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .primary {
@@ -208,10 +223,147 @@ textarea:focus {
 
 .image-input {
   display: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 12px;
 }
 
 .image-input.visible {
   display: grid;
+}
+
+.image-input legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.reference-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.reference-mode-button {
+  min-height: 38px;
+}
+
+.multi-reference-field {
+  display: grid;
+  gap: 12px;
+}
+
+.multi-reference-field[hidden],
+#singleImageField[hidden] {
+  display: none;
+}
+
+.reference-frame-grid,
+.middle-reference-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.middle-reference-list:empty {
+  display: none;
+}
+
+.reference-card {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.reference-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.reference-card-head strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.reference-card-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reference-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #141611;
+  color: #dce3d3;
+  font-size: 12px;
+}
+
+.reference-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reference-card input[type="file"] {
+  min-width: 0;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.range-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-control input {
+  padding: 0;
+}
+
+.range-control output {
+  color: var(--ink);
+  text-align: right;
+  font-size: 12px;
+}
+
+.reference-parameters {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.6fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--danger);
+  font-size: 20px;
+}
+
+.icon-button:hover {
+  border-color: var(--danger);
+}
+
+.add-reference {
+  width: 100%;
 }
 
 .controls {
@@ -351,7 +503,9 @@ textarea:focus {
   .credentials,
   .workspace,
   .lower-grid,
-  .controls {
+  .controls,
+  .reference-frame-grid,
+  .middle-reference-list {
     grid-template-columns: 1fr;
   }
 

@@ -45,10 +45,63 @@
             <textarea id="negativePrompt" rows="3" placeholder="blur, artifacts, low quality"></textarea>
           </label>
 
-          <label class="image-input" id="imageInput">
-            Input Image
-            <input id="inputImage" type="file" accept="image/png,image/jpeg,image/webp" />
-          </label>
+          <fieldset class="image-input" id="imageInput">
+            <legend>Image Conditioning</legend>
+            <div class="reference-mode" role="group" aria-label="Image conditioning mode">
+              <button type="button" class="reference-mode-button active" data-reference-mode="single" aria-pressed="true">单图</button>
+              <button type="button" class="reference-mode-button" data-reference-mode="multi" aria-pressed="false">收尾帧</button>
+            </div>
+
+            <label id="singleImageField">
+              Input Image
+              <input id="inputImage" type="file" accept="image/png,image/jpeg,image/webp" />
+            </label>
+
+            <div class="multi-reference-field" id="multiReferenceField" hidden>
+              <div class="reference-frame-grid">
+                <article class="reference-card">
+                  <div class="reference-card-head">
+                    <strong>首帧</strong>
+                    <span>0%</span>
+                  </div>
+                  <div class="reference-preview" data-preview-for="startImage"><span>START</span></div>
+                  <label>
+                    Image
+                    <input id="startImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                  </label>
+                  <label>
+                    Strength
+                    <span class="range-control">
+                      <input id="startStrength" type="range" min="0" max="1" step="0.05" value="0.9" />
+                      <output for="startStrength">0.90</output>
+                    </span>
+                  </label>
+                </article>
+
+                <article class="reference-card">
+                  <div class="reference-card-head">
+                    <strong>尾帧</strong>
+                    <span>100%</span>
+                  </div>
+                  <div class="reference-preview" data-preview-for="endImage"><span>END</span></div>
+                  <label>
+                    Image
+                    <input id="endImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                  </label>
+                  <label>
+                    Strength
+                    <span class="range-control">
+                      <input id="endStrength" type="range" min="0" max="1" step="0.05" value="0.8" />
+                      <output for="endStrength">0.80</output>
+                    </span>
+                  </label>
+                </article>
+              </div>
+
+              <div class="middle-reference-list" id="middleReferences"></div>
+              <button class="secondary add-reference" id="addMiddleReference" type="button">添加中间帧</button>
+            </div>
+          </fieldset>
 
           <div class="controls">
             <label>
@@ -80,7 +133,7 @@
           </div>
 
           <button class="primary" id="submitGeneration" type="submit">生成视频</button>
-          <p class="form-status" id="formStatus"></p>
+          <p class="form-status" id="formStatus" role="status" aria-live="polite"></p>
         </form>
 
         <section class="preview" aria-label="Generation preview">

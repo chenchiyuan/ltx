@@ -1,9 +1,13 @@
 const API_BASE = "/api";
 const recentKey = "ltx.recentTasks";
+const MAX_IMAGE_CONDITIONS = 4;
 
 let selectedTaskId = null;
 let mode = "text_to_video";
+let referenceMode = "single";
 let videoObjectUrl = null;
+let nextMiddleReferenceId = 1;
+const imagePreviewUrls = new Map();
 
 const els = {
   health: document.querySelector("#healthState"),
@@ -14,11 +18,20 @@ const els = {
   prompt: document.querySelector("#prompt"),
   negativePrompt: document.querySelector("#negativePrompt"),
   imageInput: document.querySelector("#imageInput"),
+  singleImageField: document.querySelector("#singleImageField"),
+  multiReferenceField: document.querySelector("#multiReferenceField"),
   inputImage: document.querySelector("#inputImage"),
+  startImage: document.querySelector("#startImage"),
+  endImage: document.querySelector("#endImage"),
+  startStrength: document.querySelector("#startStrength"),
+  endStrength: document.querySelector("#endStrength"),
+  middleReferences: document.querySelector("#middleReferences"),
+  addMiddleReference: document.querySelector("#addMiddleReference"),
   profile: document.querySelector("#profile"),
   duration: document.querySelector("#duration"),
   aspectRatio: document.querySelector("#aspectRatio"),
   seed: document.querySelector("#seed"),
+  submitGeneration: document.querySelector("#submitGeneration"),
   formStatus: document.querySelector("#formStatus"),
   taskRows: document.querySelector("#taskRows"),
   selectedTaskTitle: document.querySelector("#selectedTaskTitle"),
@@ -60,8 +73,9 @@ async function requestJson(path, options = {}) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) {
-    const code = data?.error?.code || data?.detail?.code || response.status;
-    const message = data?.error?.message || data?.detail?.message || response.statusText;
+    const detail = data?.detail?.error || data?.detail || data?.error || {};
+    const code = detail.code || response.status;
+    const message = detail.message || response.statusText;
     throw new Error(`${code}: ${message}`);
   }
   return data;
@@ -108,6 +122,111 @@ function setMode(nextMode) {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
   els.imageInput.classList.toggle("visible", mode === "image_to_video");
+  syncProfileAvailability();
+}
+
+function setReferenceMode(nextMode) {
+  referenceMode = nextMode;
+  document.querySelectorAll("[data-reference-mode]").forEach((button) => {
+    const active = button.dataset.referenceMode === referenceMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const multi = referenceMode === "multi";
+  els.singleImageField.hidden = multi;
+  els.multiReferenceField.hidden = !multi;
+  if (multi) els.profile.value = "vip";
+  syncProfileAvailability();
+}
+
+function syncProfileAvailability() {
+  els.profile.disabled = mode === "image_to_video" && referenceMode === "multi";
+}
+
+function updateRangeOutput(input) {
+  const output = document.querySelector(`output[for="${input.id}"]`);
+  if (output) output.value = Number(input.value).toFixed(2);
+}
+
+function updateImagePreview(input) {
+  const preview = document.querySelector(`[data-preview-for="${input.id}"]`);
+  if (!preview) return;
+  const previousUrl = imagePreviewUrls.get(input.id);
+  if (previousUrl) URL.revokeObjectURL(previousUrl);
+  imagePreviewUrls.delete(input.id);
+  preview.innerHTML = "";
+
+  const file = input.files[0];
+  if (!file) {
+    const fallback = document.createElement("span");
+    fallback.textContent = input.id === "startImage" ? "START" : input.id === "endImage" ? "END" : "MIDDLE";
+    preview.appendChild(fallback);
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  imagePreviewUrls.set(input.id, objectUrl);
+  const image = document.createElement("img");
+  image.src = objectUrl;
+  image.alt = file.name;
+  preview.appendChild(image);
+}
+
+function middleReferenceRows() {
+  return [...els.middleReferences.querySelectorAll(".middle-reference")];
+}
+
+function updateAddReferenceState() {
+  els.addMiddleReference.disabled = middleReferenceRows().length >= MAX_IMAGE_CONDITIONS - 2;
+}
+
+function addMiddleReference() {
+  if (middleReferenceRows().length >= MAX_IMAGE_CONDITIONS - 2) return;
+  const referenceId = nextMiddleReferenceId++;
+  const inputId = `middleImage${referenceId}`;
+  const strengthId = `middleStrength${referenceId}`;
+  const defaultPosition = middleReferenceRows().length === 0 ? 50 : 75;
+  const card = document.createElement("article");
+  card.className = "reference-card middle-reference";
+  card.dataset.referenceId = String(referenceId);
+  card.innerHTML = `
+    <div class="reference-card-head">
+      <strong>中间帧</strong>
+      <button class="icon-button" type="button" title="移除中间帧" aria-label="移除中间帧">×</button>
+    </div>
+    <div class="reference-preview" data-preview-for="${inputId}"><span>MIDDLE</span></div>
+    <label>
+      Image
+      <input id="${inputId}" class="middle-image" type="file" accept="image/png,image/jpeg,image/webp" />
+    </label>
+    <div class="reference-parameters">
+      <label>
+        Position %
+        <input class="middle-position" type="number" min="1" max="99" value="${defaultPosition}" />
+      </label>
+      <label>
+        Strength
+        <span class="range-control">
+          <input id="${strengthId}" class="middle-strength" type="range" min="0" max="1" step="0.05" value="0.7" />
+          <output for="${strengthId}">0.70</output>
+        </span>
+      </label>
+    </div>
+  `;
+
+  const fileInput = card.querySelector(".middle-image");
+  const strengthInput = card.querySelector(".middle-strength");
+  fileInput.addEventListener("change", () => updateImagePreview(fileInput));
+  strengthInput.addEventListener("input", () => updateRangeOutput(strengthInput));
+  card.querySelector(".icon-button").addEventListener("click", () => {
+    const objectUrl = imagePreviewUrls.get(inputId);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    imagePreviewUrls.delete(inputId);
+    card.remove();
+    updateAddReferenceState();
+  });
+  els.middleReferences.appendChild(card);
+  updateAddReferenceState();
 }
 
 async function uploadInputImage(file) {
@@ -130,7 +249,7 @@ async function uploadInputImage(file) {
   return created.asset_id;
 }
 
-function generationPayload(imageAssetId) {
+function generationPayload({ imageAssetId = null, imageConditions = null } = {}) {
   const payload = {
     mode,
     prompt: els.prompt.value.trim(),
@@ -141,19 +260,65 @@ function generationPayload(imageAssetId) {
   };
   if (els.seed.value.trim()) payload.seed = Number(els.seed.value);
   if (imageAssetId) payload.image_asset_id = imageAssetId;
+  if (imageConditions) payload.image_conditions = imageConditions;
   return payload;
+}
+
+function multiReferenceDescriptors() {
+  const startFile = els.startImage.files[0];
+  const endFile = els.endImage.files[0];
+  if (!startFile) throw new Error("首帧图片不能为空");
+  if (!endFile) throw new Error("尾帧图片不能为空");
+
+  const middle = middleReferenceRows().map((row) => {
+    const file = row.querySelector(".middle-image").files[0];
+    const position = Number(row.querySelector(".middle-position").value);
+    if (!file) throw new Error("已添加的中间帧必须选择图片");
+    if (!Number.isFinite(position) || position <= 0 || position >= 100) {
+      throw new Error("中间帧位置必须在 1% 到 99% 之间");
+    }
+    return {
+      file,
+      position,
+      strength: Number(row.querySelector(".middle-strength").value),
+    };
+  });
+  const positions = middle.map((item) => item.position);
+  if (new Set(positions).size !== positions.length) throw new Error("中间帧位置不能重复");
+
+  return [
+    { file: startFile, position: "start", strength: Number(els.startStrength.value) },
+    ...middle.sort((left, right) => left.position - right.position),
+    { file: endFile, position: "end", strength: Number(els.endStrength.value) },
+  ];
+}
+
+async function prepareImagePayload() {
+  if (mode !== "image_to_video") return {};
+  if (referenceMode === "single") {
+    const file = els.inputImage.files[0];
+    if (!file) throw new Error("图生视频需要输入图片");
+    setStatus("Uploading input image");
+    return { imageAssetId: await uploadInputImage(file) };
+  }
+
+  const references = multiReferenceDescriptors();
+  setStatus(`Uploading ${references.length} reference images`);
+  const assetIds = await Promise.all(references.map((reference) => uploadInputImage(reference.file)));
+  const imageConditions = references.map((reference, index) => ({
+    asset_id: assetIds[index],
+    position: typeof reference.position === "number" ? `${reference.position}%` : reference.position,
+    strength: reference.strength,
+  }));
+  return { imageConditions };
 }
 
 async function createGeneration(event) {
   event.preventDefault();
   setStatus("Submitting");
+  els.submitGeneration.disabled = true;
   try {
-    let imageAssetId = null;
-    if (mode === "image_to_video") {
-      const file = els.inputImage.files[0];
-      if (!file) throw new Error("Input image is required for image_to_video");
-      imageAssetId = await uploadInputImage(file);
-    }
+    const imagePayload = await prepareImagePayload();
     const task = await requestJson("/v1/video-generations", {
       method: "POST",
       headers: {
@@ -161,13 +326,15 @@ async function createGeneration(event) {
         "Content-Type": "application/json",
         "Idempotency-Key": `web-${Date.now()}`,
       },
-      body: JSON.stringify(generationPayload(imageAssetId)),
+      body: JSON.stringify(generationPayload(imagePayload)),
     });
     rememberTask({ ...task, mode });
     setStatus(`Queued ${task.task_id}`);
     await refreshSelectedTask();
   } catch (error) {
     setStatus(error.message);
+  } finally {
+    els.submitGeneration.disabled = false;
   }
 }
 
@@ -310,6 +477,16 @@ async function loadWorkflows() {
 document.querySelectorAll(".mode").forEach((button) => {
   button.addEventListener("click", () => setMode(button.dataset.mode));
 });
+document.querySelectorAll("[data-reference-mode]").forEach((button) => {
+  button.addEventListener("click", () => setReferenceMode(button.dataset.referenceMode));
+});
+for (const input of [els.inputImage, els.startImage, els.endImage]) {
+  input.addEventListener("change", () => updateImagePreview(input));
+}
+for (const input of [els.startStrength, els.endStrength]) {
+  input.addEventListener("input", () => updateRangeOutput(input));
+}
+els.addMiddleReference.addEventListener("click", addMiddleReference);
 els.saveKeys.addEventListener("click", saveKeys);
 els.form.addEventListener("submit", createGeneration);
 els.refreshTasks.addEventListener("click", refreshAllTasks);
@@ -320,6 +497,8 @@ els.loadWorkflows.addEventListener("click", loadWorkflows);
 
 loadKeys();
 setMode(mode);
+setReferenceMode(referenceMode);
+updateAddReferenceState();
 renderTasks(getRecentTasks());
 checkHealth();
 setInterval(checkHealth, 10000);

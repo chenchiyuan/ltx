@@ -173,6 +173,29 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     assert "ADMIN_TOKEN" not in index
 
 
+def test_web_frontend_supports_start_end_and_middle_reference_frames() -> None:
+    app = read_root("web_frontend/app.js")
+    index = read_root("web_frontend/index.html")
+
+    for element_id in [
+        "singleImageField",
+        "multiReferenceField",
+        "startImage",
+        "endImage",
+        "middleReferences",
+        "addMiddleReference",
+    ]:
+        assert f'id="{element_id}"' in index
+
+    assert 'data-reference-mode="single"' in index
+    assert 'data-reference-mode="multi"' in index
+    assert 'payload.image_conditions = imageConditions' in app
+    assert "MAX_IMAGE_CONDITIONS = 4" in app
+    assert 'position: "start"' in app
+    assert 'position: "end"' in app
+    assert 'els.profile.value = "vip"' in app
+
+
 def test_deploy_scripts_fail_fast_on_gpu_runtime() -> None:
     deploy = read("scripts/deploy.sh")
     healthcheck = read("scripts/healthcheck.sh")
