@@ -48,17 +48,11 @@ x-mgpu-worker-env: &mgpu_worker_env
   WORKER_EXECUTION_BACKEND: ltx_mgpu
   MODEL_DIR: /opt/ltx/models
   MGPU_CHECKPOINT_PATH: /opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors
-  MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}
-  MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2-19b-distilled-fp8.safetensors}
+  MGPU_PIPELINE: ${MGPU_PIPELINE:-two_stage}
   MGPU_DISTILLED_LORA_PATH: /opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
   MGPU_SPATIAL_UPSAMPLER_PATH: /opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
-  MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/opt/ltx/models/gemma-3-12b-local}
-  MGPU_QUANTIZATION: ${MGPU_QUANTIZATION:-fp8-scaled-mm}
-  MGPU_OFFLOAD_MODE: ${MGPU_OFFLOAD_MODE:-none}
-  MGPU_NO_LORA_SWAP: ${MGPU_NO_LORA_SWAP:-true}
-  MGPU_NO_AUDIO: ${MGPU_NO_AUDIO:-true}
-  MGPU_DISTRIBUTED_VAE: ${MGPU_DISTRIBUTED_VAE:-true}
-  MGPU_VAE_OVERLAP: ${MGPU_VAE_OVERLAP:-4}
+  MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/opt/ltx/models/gemma-3-12b-qat}
+  MGPU_QUANTIZATION: ${MGPU_QUANTIZATION:-fp8-cast}
   MGPU_NUM_INFERENCE_STEPS: ${MGPU_NUM_INFERENCE_STEPS:-8}
   MGPU_START_TIMEOUT_SECONDS: ${MGPU_START_TIMEOUT_SECONDS:-3600}
   MGPU_JOB_TIMEOUT_SECONDS: ${MGPU_JOB_TIMEOUT_SECONDS:-7200}
@@ -69,8 +63,6 @@ x-worker-volumes: &worker_volumes
 
 x-mgpu-worker-volumes: &mgpu_worker_volumes
   - ${MODEL_DIR:-/opt/ltx/models}:/opt/ltx/models
-  - ${MGPU_DISTILLED_CACHE_DIR:-/opt/ltx/models/checkpoints}:/fp8:ro
-  - ${MGPU_GEMMA_CACHE_DIR:-/opt/ltx/models/gemma-3-12b-local}:/gemma:ro
   - ${STORAGE_DIR:-/opt/ltx/storage}:/data/ltx-storage
 
 services:
@@ -354,13 +346,13 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["4", "5", "6", "7"]
+              device_ids: ["0", "1", "2", "3", "4", "5", "6", "7"]
               capabilities: ["gpu"]
     environment:
       <<: *mgpu_worker_env
-      GPU_INDEX: "4"
-      GPU_IDS: "4,5,6,7"
-      WORKER_SLOT: "4"
+      GPU_INDEX: "0"
+      GPU_IDS: "0,1,2,3,4,5,6,7"
+      WORKER_SLOT: "0"
       WORKER_NAME: ltx-worker-vip
       WORKER_ASSIGN_HOST: worker-vip
       WORKER_PROFILES: vip

@@ -47,7 +47,7 @@ class VideoGenerationCreate(BaseModel):
     negative_prompt: str | None = None
     image_asset_id: str | None = None
     image_conditions: list[ImageCondition] = Field(default_factory=list, max_length=4)
-    profile: Literal["fast", "ultra", "vip", "quality"] = "fast"
+    profile: Literal["fast", "ultra", "vip", "quality"] = "vip"
     duration_seconds: int = Field(default=5, ge=1, le=60)
     aspect_ratio: str = "16:9"
     seed: int | None = None

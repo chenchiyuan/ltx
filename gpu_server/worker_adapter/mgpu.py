@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -35,18 +36,74 @@ def _env_timedelta_seconds(name: str, default: int) -> timedelta:
     return timedelta(seconds=_env_int(name, default))
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or value == "":
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _required_path(env_name: str, default: str) -> str:
     path = os.getenv(env_name, default)
     if not Path(path).exists():
         raise ValueError(f"{env_name} path not found: {path}")
     return path
+
+
+def validate_mgpu_model_contract() -> None:
+    pipeline = os.getenv("MGPU_PIPELINE", "two_stage").strip().lower().replace("-", "_")
+    if pipeline not in {"two_stage", "ti2vid_two_stages"}:
+        raise ValueError(f"MGPU_PIPELINE must use the official two-stage runner, got: {pipeline}")
+
+    quantization = os.getenv("MGPU_QUANTIZATION", "fp8-cast").strip().lower()
+    if quantization != "fp8-cast":
+        raise ValueError(f"MGPU_QUANTIZATION must be fp8-cast for the LTX 2.3 dev checkpoint, got: {quantization}")
+
+    required_models = {
+        "MGPU_CHECKPOINT_PATH": (
+            "/opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors",
+            "ltx-2.3-22b-dev.safetensors",
+        ),
+        "MGPU_DISTILLED_LORA_PATH": (
+            "/opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+            "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+        ),
+        "MGPU_SPATIAL_UPSAMPLER_PATH": (
+            "/opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+            "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+        ),
+    }
+    for env_name, (default, expected_name) in required_models.items():
+        path = Path(_required_path(env_name, default))
+        if path.name != expected_name:
+            raise ValueError(f"{env_name} must reference {expected_name}, got: {path.name}")
+        if path.stat().st_size == 0:
+            raise ValueError(f"{env_name} is empty: {path}")
+
+    gemma_root = Path(_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-qat"))
+    config_path = gemma_root / "config.json"
+    index_path = gemma_root / "model.safetensors.index.json"
+    tokenizer_path = gemma_root / "tokenizer.json"
+    for path in (config_path, index_path, tokenizer_path):
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"MGPU Gemma file is missing or empty: {path}")
+
+    try:
+        config = json.loads(config_path.read_text())
+        weight_map = json.loads(index_path.read_text())["weight_map"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError(f"MGPU Gemma metadata is invalid under {gemma_root}: {exc}") from exc
+
+    if "Gemma3ForConditionalGeneration" not in config.get("architectures", []):
+        raise ValueError(f"MGPU Gemma architecture is incompatible: {config.get('architectures', [])}")
+
+    keys = set(weight_map)
+    required_weight_keys = {
+        "language model": any(key.startswith("model.language_model.") for key in keys),
+        "vision tower": any(key.startswith("model.vision_tower.") for key in keys),
+        "language model head": "lm_head.weight" in keys,
+    }
+    missing_keys = [name for name, present in required_weight_keys.items() if not present]
+    if missing_keys:
+        raise ValueError(f"Gemma weight contract is incompatible; missing: {', '.join(missing_keys)}")
+
+    for shard_name in set(weight_map.values()):
+        shard_path = gemma_root / shard_name
+        if not shard_path.is_file() or shard_path.stat().st_size == 0:
+            raise ValueError(f"MGPU Gemma shard is missing or empty: {shard_path}")
 
 
 class LtxMgpuExecutor:
@@ -112,11 +169,7 @@ class LtxMgpuExecutor:
         if self._controller is not None and self._controller.is_alive:
             return self._controller
 
-        pipeline = os.getenv("MGPU_PIPELINE", "two_stage").strip().lower().replace("-", "_")
-        if pipeline in {"distilled", "distilled_single_stage"}:
-            return self._start_distilled_controller()
-        if pipeline not in {"two_stage", "ti2vid_two_stages"}:
-            raise ValueError(f"Unsupported MGPU_PIPELINE: {pipeline}")
+        validate_mgpu_model_contract()
         return self._start_two_stage_controller()
 
     def _start_two_stage_controller(self):
@@ -132,7 +185,7 @@ class LtxMgpuExecutor:
                 "MGPU_CHECKPOINT_PATH",
                 "/opt/ltx/models/checkpoints/ltx-2.3-22b-dev.safetensors",
             ),
-            gemma_root=_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-local"),
+            gemma_root=_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-qat"),
             spatial_upsampler_path=_required_path(
                 "MGPU_SPATIAL_UPSAMPLER_PATH",
                 "/opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
@@ -142,37 +195,6 @@ class LtxMgpuExecutor:
                 "/opt/ltx/models/loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
             ),
             vae_queue=self._vae_queue,
-        )
-        self._controller = controller
-        return controller
-
-    def _start_distilled_controller(self):
-        from ltx_pipelines.multigpu.controller import MGPUController
-        import torch
-
-        from .distilled_mgpu import FixedDistilledRunner, QuantizationBuilder
-
-        checkpoint_path = _required_path(
-            "MGPU_DISTILLED_CHECKPOINT_PATH",
-            "/opt/ltx/models/checkpoints/ltx-2-19b-distilled-fp8.safetensors",
-        )
-        self._vae_queue = torch.multiprocessing.get_context("spawn").SimpleQueue()
-        controller = MGPUController(FixedDistilledRunner)
-        controller.start(
-            timeout=_env_timedelta_seconds("MGPU_START_TIMEOUT_SECONDS", 3600),
-            distilled_checkpoint_path=checkpoint_path,
-            gemma_root=_required_path("MGPU_GEMMA_ROOT", "/opt/ltx/models/gemma-3-12b-local"),
-            spatial_upsampler_path=_required_path(
-                "MGPU_SPATIAL_UPSAMPLER_PATH",
-                "/opt/ltx/models/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
-            ),
-            vae_queue=self._vae_queue,
-            quantization=QuantizationBuilder(os.getenv("MGPU_QUANTIZATION", "fp8-scaled-mm"), checkpoint_path),
-            offload_mode=os.getenv("MGPU_OFFLOAD_MODE", "none"),
-            no_lora_swap=_env_bool("MGPU_NO_LORA_SWAP", True),
-            no_audio=_env_bool("MGPU_NO_AUDIO", True),
-            vae_overlap=_env_int("MGPU_VAE_OVERLAP", 4),
-            distributed_vae=_env_bool("MGPU_DISTRIBUTED_VAE", True),
         )
         self._controller = controller
         return controller

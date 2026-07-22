@@ -40,7 +40,7 @@ fi
 services=(control-plane dispatcher web-frontend)
 skipped_worker_names=()
 if [ "${START_GPU_WORKERS:-true}" = "true" ]; then
-  IFS=',' read -r -a worker_services <<< "${WORKER_SERVICES:-worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-fast-4,worker-fast-5,worker-fast-6,worker-fast-7}"
+  IFS=',' read -r -a worker_services <<< "${WORKER_SERVICES:-worker-vip}"
   for worker_service in "${worker_services[@]}"; do
     if [[ "${worker_service}" =~ ^worker-(ultra|vip)$ && "${ENABLE_MGPU_EXPERIMENTAL:-false}" != "true" ]]; then
       echo "Skipping ${worker_service}; set ENABLE_MGPU_EXPERIMENTAL=true only after MGPU E2E validation." >&2

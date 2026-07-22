@@ -66,6 +66,14 @@ def test_auth_health_and_quota_guards(client):
     assert ADMIN_TOKEN not in str(health)
 
 
+def test_video_generation_schema_defaults_to_vip_profile():
+    from ltx_service.schemas import VideoGenerationCreate
+
+    payload = VideoGenerationCreate(mode="text_to_video", prompt="hello")
+
+    assert payload.profile == "vip"
+
+
 def test_sqlite_database_parent_directory_is_created(tmp_path):
     from ltx_service.config import Settings
     from ltx_service.database import create_session_factory
@@ -848,6 +856,9 @@ def test_admin_workflow_lifecycle_and_access_control(client):
     payload = workflows.json()
     assert {item["mode"] for item in payload["templates"]} == {"text_to_video", "image_to_video"}
     assert {item["profile"] for item in payload["profiles"]} == {"fast", "ultra", "vip", "quality"}
+    vip_profiles = [item for item in payload["profiles"] if item["profile"] == "vip"]
+    assert all(item["estimated_gpu_seconds"] == 1440 for item in vip_profiles)
+    assert all(item["parameter_schema"]["gpu_count"] == 8 for item in vip_profiles)
 
     text_template_id = next(item["id"] for item in payload["templates"] if item["mode"] == "text_to_video")
     original_version_id = next(

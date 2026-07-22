@@ -1,5 +1,6 @@
 from datetime import timedelta
 from io import BytesIO
+import json
 from pathlib import Path
 import sys
 import types
@@ -8,6 +9,7 @@ from gpu_server.worker_adapter.mgpu import dimensions_for_aspect_ratio
 from gpu_server.worker_adapter.mgpu import frame_count_for_duration
 from gpu_server.worker_adapter.mgpu import LtxMgpuExecutor
 from gpu_server.worker_adapter.mgpu import _env_timedelta_seconds
+from gpu_server.worker_adapter.mgpu import validate_mgpu_model_contract
 
 
 def test_frame_count_for_duration_returns_8k_plus_one() -> None:
@@ -37,6 +39,66 @@ def test_mgpu_timeout_env_returns_timedelta(monkeypatch) -> None:
     monkeypatch.setenv("MGPU_START_TIMEOUT_SECONDS", "42")
 
     assert _env_timedelta_seconds("MGPU_START_TIMEOUT_SECONDS", 3600) == timedelta(seconds=42)
+
+
+def write_valid_mgpu_model_contract(tmp_path: Path) -> dict[str, Path]:
+    checkpoint = tmp_path / "ltx-2.3-22b-dev.safetensors"
+    lora = tmp_path / "ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+    upsampler = tmp_path / "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    for path in (checkpoint, lora, upsampler):
+        path.write_bytes(b"model")
+
+    gemma = tmp_path / "gemma"
+    gemma.mkdir()
+    (gemma / "config.json").write_text(json.dumps({"architectures": ["Gemma3ForConditionalGeneration"]}))
+    (gemma / "tokenizer.json").write_text("{}")
+    (gemma / "model-00001-of-00002.safetensors").write_bytes(b"shard-1")
+    (gemma / "model-00002-of-00002.safetensors").write_bytes(b"shard-2")
+    (gemma / "model.safetensors.index.json").write_text(
+        json.dumps(
+            {
+                "weight_map": {
+                    "model.language_model.layers.0.self_attn.q_proj.weight": "model-00001-of-00002.safetensors",
+                    "model.vision_tower.vision_model.embeddings.patch_embedding.weight": "model-00002-of-00002.safetensors",
+                    "lm_head.weight": "model-00002-of-00002.safetensors",
+                }
+            }
+        )
+    )
+    return {"checkpoint": checkpoint, "lora": lora, "upsampler": upsampler, "gemma": gemma}
+
+
+def test_validate_mgpu_model_contract_accepts_official_two_stage_layout(tmp_path, monkeypatch) -> None:
+    paths = write_valid_mgpu_model_contract(tmp_path)
+    monkeypatch.setenv("MGPU_PIPELINE", "two_stage")
+    monkeypatch.setenv("MGPU_QUANTIZATION", "fp8-cast")
+    monkeypatch.setenv("MGPU_CHECKPOINT_PATH", str(paths["checkpoint"]))
+    monkeypatch.setenv("MGPU_DISTILLED_LORA_PATH", str(paths["lora"]))
+    monkeypatch.setenv("MGPU_SPATIAL_UPSAMPLER_PATH", str(paths["upsampler"]))
+    monkeypatch.setenv("MGPU_GEMMA_ROOT", str(paths["gemma"]))
+
+    validate_mgpu_model_contract()
+
+
+def test_validate_mgpu_model_contract_rejects_incompatible_gemma_weights(tmp_path, monkeypatch) -> None:
+    paths = write_valid_mgpu_model_contract(tmp_path)
+    index_path = paths["gemma"] / "model.safetensors.index.json"
+    index_path.write_text(
+        json.dumps({"weight_map": {"model.layers.0.self_attn.q_proj.weight": "model-00001-of-00002.safetensors"}})
+    )
+    monkeypatch.setenv("MGPU_PIPELINE", "two_stage")
+    monkeypatch.setenv("MGPU_QUANTIZATION", "fp8-cast")
+    monkeypatch.setenv("MGPU_CHECKPOINT_PATH", str(paths["checkpoint"]))
+    monkeypatch.setenv("MGPU_DISTILLED_LORA_PATH", str(paths["lora"]))
+    monkeypatch.setenv("MGPU_SPATIAL_UPSAMPLER_PATH", str(paths["upsampler"]))
+    monkeypatch.setenv("MGPU_GEMMA_ROOT", str(paths["gemma"]))
+
+    try:
+        validate_mgpu_model_contract()
+    except ValueError as exc:
+        assert "Gemma weight contract" in str(exc)
+    else:
+        raise AssertionError("incompatible Gemma weights must fail preflight")
 
 
 def test_mgpu_executor_shutdowns_controller_after_task(tmp_path, monkeypatch) -> None:

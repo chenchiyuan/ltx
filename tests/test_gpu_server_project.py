@@ -28,7 +28,6 @@ def test_gpu_server_required_files_exist() -> None:
         "scripts/healthcheck.sh",
         "scripts/download_models.sh",
         "worker_adapter/runtime.py",
-        "worker_adapter/distilled_mgpu.py",
         "config/worker.yaml",
         "workflows/README.md",
     ]
@@ -61,9 +60,7 @@ def test_env_example_contains_phase2_contract_variables() -> None:
         "WORKER_SERVICES",
         "GPU_LAYOUT",
         "MGPU_GEMMA_HF_REPO",
-        "MGPU_DISTILLED_HF_REPO",
         "LTX_SPATIAL_UPSAMPLER_FILE",
-        "MGPU_DISTILLED_FILE",
         "MODEL_DIR",
         "STORAGE_DIR",
         "WORKER_TOKEN",
@@ -74,16 +71,15 @@ def test_env_example_contains_phase2_contract_variables() -> None:
     assert "LTX_HF_REPO=Lightricks/LTX-2.3" in env_example
     assert "GEMMA_HF_REPO=Comfy-Org/ltx-2" in env_example
     assert "GEMMA_HF_FILE=split_files/text_encoders/gemma_3_12B_it.safetensors" in env_example
-    assert "MGPU_GEMMA_HF_REPO=google/gemma-3-12b-it" in env_example
-    assert "MGPU_DISTILLED_HF_REPO=Lightricks/LTX-2" in env_example
+    assert "MGPU_GEMMA_HF_REPO=google/gemma-3-12b-it-qat-q4_0-unquantized" in env_example
     assert "LTX_SPATIAL_UPSAMPLER_FILE=ltx-2.3-spatial-upscaler-x2-1.1.safetensors" in env_example
-    assert "MGPU_DISTILLED_FILE=ltx-2-19b-distilled-fp8.safetensors" in env_example
     assert "ENABLE_MGPU_EXPERIMENTAL=true" in env_example
-    assert "WORKER_COUNT=5" in env_example
-    assert "WORKER_SERVICES=worker-fast-0,worker-fast-1,worker-fast-2,worker-fast-3,worker-vip" in env_example
-    assert 'GPU_LAYOUT="fast:0;fast:1;fast:2;fast:3;vip:4,5,6,7"' in env_example
-    assert "MGPU_PIPELINE=distilled" in env_example
-    assert "MGPU_DISTILLED_CHECKPOINT_PATH=/fp8/ltx-2-19b-distilled-fp8.safetensors" in env_example
+    assert "WORKER_COUNT=1" in env_example
+    assert "WORKER_SERVICES=worker-vip" in env_example
+    assert 'GPU_LAYOUT="vip:0,1,2,3,4,5,6,7"' in env_example
+    assert "MGPU_PIPELINE=two_stage" in env_example
+    assert "MGPU_GEMMA_ROOT=/opt/ltx/models/gemma-3-12b-qat" in env_example
+    assert "MGPU_QUANTIZATION=fp8-cast" in env_example
 
 
 def test_worker_runtime_passes_configured_comfyui_extra_args() -> None:
@@ -125,18 +121,22 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
         for gpu_index in range(8)
     }
     expected["worker-ultra"] = ('device_ids: ["2", "3"]', 'WORKER_PROFILES: ultra', 'GPU_IDS: "2,3"')
-    expected["worker-vip"] = ('device_ids: ["4", "5", "6", "7"]', 'WORKER_PROFILES: vip', 'GPU_IDS: "4,5,6,7"')
+    expected["worker-vip"] = (
+        'device_ids: ["0", "1", "2", "3", "4", "5", "6", "7"]',
+        'WORKER_PROFILES: vip',
+        'GPU_IDS: "0,1,2,3,4,5,6,7"',
+    )
     for service_name, snippets in expected.items():
         assert f"{service_name}:" in compose
         for snippet in snippets:
             assert snippet in compose
     assert "WORKER_EXECUTION_BACKEND: ltx_mgpu" in compose
     assert 'START_COMFYUI: "false"' in compose
-    assert "MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}" in compose
-    assert "MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2-19b-distilled-fp8.safetensors}" in compose
-    assert "MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/opt/ltx/models/gemma-3-12b-local}" in compose
-    assert "${MGPU_DISTILLED_CACHE_DIR:-/opt/ltx/models/checkpoints}:/fp8:ro" in compose
-    assert "${MGPU_GEMMA_CACHE_DIR:-/opt/ltx/models/gemma-3-12b-local}:/gemma:ro" in compose
+    assert "MGPU_PIPELINE: ${MGPU_PIPELINE:-two_stage}" in compose
+    assert "MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/opt/ltx/models/gemma-3-12b-qat}" in compose
+    assert "MGPU_QUANTIZATION: ${MGPU_QUANTIZATION:-fp8-cast}" in compose
+    assert "/fp8:ro" not in compose
+    assert "/gemma:ro" not in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
     assert compose.count('profiles: ["workers"]') == 8
     assert compose.count('profiles: ["mgpu-experimental"]') == 2
@@ -163,12 +163,10 @@ def test_web_frontend_proxies_api_without_backend_secrets() -> None:
     assert 'const API_BASE = "/api";' in app
     assert "/v1/video-generations" in app
     assert "/v1/assets/uploads" in app
-    assert 'value="fast"' in index
-    assert 'value="ultra"' in index
     assert 'value="vip"' in index
-    assert 'value="ultra" disabled' in index
-    assert 'value="vip" disabled' not in index
-    assert 'value="vip">vip · 4 GPU' in index
+    assert 'value="fast"' not in index
+    assert 'value="ultra"' not in index
+    assert 'value="vip">vip · 8 GPU · two-stage' in index
     assert "BOOTSTRAP_API_KEY" not in index
     assert "ADMIN_TOKEN" not in index
 

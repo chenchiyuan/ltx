@@ -306,6 +306,11 @@ def main() -> None:
         )
     )
 
+    if os.getenv("WORKER_EXECUTION_BACKEND", "comfyui") == "ltx_mgpu":
+        from .mgpu import validate_mgpu_model_contract
+
+        validate_mgpu_model_contract()
+
     stop = False
 
     def handle_signal(_signum: int, _frame: object) -> None:

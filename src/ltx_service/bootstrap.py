@@ -60,19 +60,27 @@ def _seed_workflows(session: Session) -> None:
 
 
 def _ensure_default_profiles(session: Session, workflow_version_id: str) -> None:
-    existing_profiles = set(
-        session.scalars(
-            select(WorkflowProfile.profile).where(WorkflowProfile.workflow_version_id == workflow_version_id)
+    existing_profiles = {
+        item.profile: item
+        for item in session.scalars(
+            select(WorkflowProfile).where(WorkflowProfile.workflow_version_id == workflow_version_id)
         ).all()
-    )
+    }
     defaults = [
         ("fast", 180, 1),
         ("ultra", 360, 2),
-        ("vip", 720, 4),
+        ("vip", 1440, 8),
         ("quality", 360, 1),
     ]
     for profile, estimated_gpu_seconds, gpu_count in defaults:
-        if profile in existing_profiles:
+        existing = existing_profiles.get(profile)
+        if existing:
+            if profile == "vip":
+                existing.estimated_gpu_seconds = estimated_gpu_seconds
+                existing.parameter_schema = {
+                    **(existing.parameter_schema or {}),
+                    "gpu_count": gpu_count,
+                }
             continue
         session.add(
             WorkflowProfile(
