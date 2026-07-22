@@ -58,9 +58,9 @@ def write_valid_mgpu_model_contract(tmp_path: Path) -> dict[str, Path]:
         json.dumps(
             {
                 "weight_map": {
-                    "model.language_model.layers.0.self_attn.q_proj.weight": "model-00001-of-00002.safetensors",
-                    "model.vision_tower.vision_model.embeddings.patch_embedding.weight": "model-00002-of-00002.safetensors",
-                    "lm_head.weight": "model-00002-of-00002.safetensors",
+                    "language_model.model.embed_tokens.weight": "model-00001-of-00002.safetensors",
+                    "language_model.model.layers.0.self_attn.q_proj.weight": "model-00001-of-00002.safetensors",
+                    "vision_tower.vision_model.embeddings.patch_embedding.weight": "model-00002-of-00002.safetensors",
                 }
             }
         )

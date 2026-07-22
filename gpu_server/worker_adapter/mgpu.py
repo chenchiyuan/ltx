@@ -91,10 +91,15 @@ def validate_mgpu_model_contract() -> None:
         raise ValueError(f"MGPU Gemma architecture is incompatible: {config.get('architectures', [])}")
 
     keys = set(weight_map)
+    language_model_present = any(
+        key.startswith(("language_model.", "model.language_model.")) for key in keys
+    )
+    vision_tower_present = any(key.startswith(("vision_tower.", "model.vision_tower.")) for key in keys)
+    tied_language_model_head = any(key.endswith("language_model.model.embed_tokens.weight") for key in keys)
     required_weight_keys = {
-        "language model": any(key.startswith("model.language_model.") for key in keys),
-        "vision tower": any(key.startswith("model.vision_tower.") for key in keys),
-        "language model head": "lm_head.weight" in keys,
+        "language model": language_model_present,
+        "vision tower": vision_tower_present,
+        "language model head": "lm_head.weight" in keys or tied_language_model_head,
     }
     missing_keys = [name for name, present in required_weight_keys.items() if not present]
     if missing_keys:
