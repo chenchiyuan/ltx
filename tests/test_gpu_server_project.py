@@ -87,6 +87,7 @@ def test_worker_runtime_passes_configured_comfyui_extra_args() -> None:
 
     assert "import shlex" in runtime
     assert 'shlex.split(os.getenv("COMFYUI_EXTRA_ARGS", ""))' in runtime
+    assert '"TI2VidTwoStagesRunner" if execution_backend == "ltx_mgpu"' in runtime
 
 
 def test_gpu_dockerfile_pins_upstream_refs() -> None:

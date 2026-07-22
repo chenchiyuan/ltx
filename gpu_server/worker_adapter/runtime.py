@@ -283,6 +283,7 @@ def start_comfyui() -> subprocess.Popen[str] | None:
 
 
 def main() -> None:
+    execution_backend = os.getenv("WORKER_EXECUTION_BACKEND", "comfyui")
     control_plane_url = os.getenv("CONTROL_PLANE_URL", "http://control-plane:8000").rstrip("/")
     worker_token = os.environ["WORKER_TOKEN"]
     node_name = os.getenv("NODE_NAME", "ltx-gpu-001")
@@ -306,7 +307,7 @@ def main() -> None:
         )
     )
 
-    if os.getenv("WORKER_EXECUTION_BACKEND", "comfyui") == "ltx_mgpu":
+    if execution_backend == "ltx_mgpu":
         from .mgpu import validate_mgpu_model_contract
 
         validate_mgpu_model_contract()
@@ -327,7 +328,9 @@ def main() -> None:
 
     worker_capabilities = capabilities(gpu_index, gpu_indices, worker_profiles)
     worker_capabilities["assign_url"] = f"http://{worker_assign_host}:{worker_api_port}/worker/attempts"
-    worker_capabilities["workflow"] = workflow_path.name
+    worker_capabilities["workflow"] = (
+        "TI2VidTwoStagesRunner" if execution_backend == "ltx_mgpu" else workflow_path.name
+    )
     if status != "idle":
         worker_capabilities["not_ready_reason"] = not_ready_reason
 
