@@ -1,6 +1,11 @@
 const API_BASE = "/api";
 const recentKey = "ltx.recentTasks";
 const MAX_IMAGE_CONDITIONS = 4;
+const IMAGE_PREVIEW_LABELS = {
+  inputImage: "REFERENCE",
+  startImage: "START",
+  endImage: "END",
+};
 
 let selectedTaskId = null;
 let mode = "text_to_video";
@@ -18,6 +23,8 @@ const els = {
   prompt: document.querySelector("#prompt"),
   negativePrompt: document.querySelector("#negativePrompt"),
   imageInput: document.querySelector("#imageInput"),
+  conditionPanelTitle: document.querySelector("#conditionPanelTitle"),
+  referenceSelectionStatus: document.querySelector("#referenceSelectionStatus"),
   singleImageField: document.querySelector("#singleImageField"),
   multiReferenceField: document.querySelector("#multiReferenceField"),
   inputImage: document.querySelector("#inputImage"),
@@ -135,7 +142,9 @@ function setReferenceMode(nextMode) {
   const multi = referenceMode === "multi";
   els.singleImageField.hidden = multi;
   els.multiReferenceField.hidden = !multi;
+  els.conditionPanelTitle.textContent = multi ? "上传首尾帧" : "上传参考图";
   if (multi) els.profile.value = "vip";
+  updateReferenceSelectionStatus();
   syncProfileAvailability();
 }
 
@@ -159,8 +168,9 @@ function updateImagePreview(input) {
   const file = input.files[0];
   if (!file) {
     const fallback = document.createElement("span");
-    fallback.textContent = input.id === "startImage" ? "START" : input.id === "endImage" ? "END" : "MIDDLE";
+    fallback.textContent = IMAGE_PREVIEW_LABELS[input.id] || "MIDDLE";
     preview.appendChild(fallback);
+    updateReferenceSelectionStatus();
     return;
   }
 
@@ -170,10 +180,22 @@ function updateImagePreview(input) {
   image.src = objectUrl;
   image.alt = file.name;
   preview.appendChild(image);
+  updateReferenceSelectionStatus();
 }
 
 function middleReferenceRows() {
   return [...els.middleReferences.querySelectorAll(".middle-reference")];
+}
+
+function updateReferenceSelectionStatus() {
+  if (referenceMode === "single") {
+    els.referenceSelectionStatus.textContent = `已选择 ${els.inputImage.files.length}/1`;
+    return;
+  }
+  const requiredSelected = Number(Boolean(els.startImage.files[0]))
+    + Number(Boolean(els.endImage.files[0]));
+  const middleSelected = middleReferenceRows().filter((row) => row.querySelector(".middle-image").files[0]).length;
+  els.referenceSelectionStatus.textContent = `必选帧 ${requiredSelected}/2 · 中间帧 ${middleSelected}/2`;
 }
 
 function updateAddReferenceState() {
@@ -196,16 +218,16 @@ function addMiddleReference() {
     </div>
     <div class="reference-preview" data-preview-for="${inputId}"><span>MIDDLE</span></div>
     <label>
-      Image
+      图片
       <input id="${inputId}" class="middle-image" type="file" accept="image/png,image/jpeg,image/webp" />
     </label>
     <div class="reference-parameters">
       <label>
-        Position %
+        位置 %
         <input class="middle-position" type="number" min="1" max="99" value="${defaultPosition}" />
       </label>
       <label>
-        Strength
+        强度
         <span class="range-control">
           <input id="${strengthId}" class="middle-strength" type="range" min="0" max="1" step="0.05" value="0.7" />
           <output for="${strengthId}">0.70</output>
@@ -224,9 +246,11 @@ function addMiddleReference() {
     imagePreviewUrls.delete(inputId);
     card.remove();
     updateAddReferenceState();
+    updateReferenceSelectionStatus();
   });
   els.middleReferences.appendChild(card);
   updateAddReferenceState();
+  updateReferenceSelectionStatus();
 }
 
 async function uploadInputImage(file) {

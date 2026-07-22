@@ -46,61 +46,84 @@
           </label>
 
           <fieldset class="image-input" id="imageInput">
-            <legend>Image Conditioning</legend>
-            <div class="reference-mode" role="group" aria-label="Image conditioning mode">
-              <button type="button" class="reference-mode-button active" data-reference-mode="single" aria-pressed="true">单图</button>
-              <button type="button" class="reference-mode-button" data-reference-mode="multi" aria-pressed="false">收尾帧</button>
+            <legend>图片条件</legend>
+            <div class="condition-type-heading">
+              <span>条件类型</span>
+            </div>
+            <div class="reference-mode" role="group" aria-label="图片条件类型">
+              <button type="button" class="reference-mode-button active" data-reference-mode="single" aria-pressed="true">
+                <strong>单张参考图</strong>
+                <span>1 张图片</span>
+              </button>
+              <button type="button" class="reference-mode-button" data-reference-mode="multi" aria-pressed="false">
+                <strong>首尾帧条件</strong>
+                <span>2-4 张图片</span>
+              </button>
             </div>
 
-            <label id="singleImageField">
-              Input Image
-              <input id="inputImage" type="file" accept="image/png,image/jpeg,image/webp" />
-            </label>
+            <section class="condition-upload-panel" aria-labelledby="conditionPanelTitle">
+              <header class="condition-upload-heading">
+                <h3 id="conditionPanelTitle">上传参考图</h3>
+                <span id="referenceSelectionStatus">已选择 0/1</span>
+              </header>
 
-            <div class="multi-reference-field" id="multiReferenceField" hidden>
-              <div class="reference-frame-grid">
-                <article class="reference-card">
-                  <div class="reference-card-head">
-                    <strong>首帧</strong>
-                    <span>0%</span>
-                  </div>
-                  <div class="reference-preview" data-preview-for="startImage"><span>START</span></div>
-                  <label>
-                    Image
-                    <input id="startImage" type="file" accept="image/png,image/jpeg,image/webp" />
-                  </label>
-                  <label>
-                    Strength
-                    <span class="range-control">
-                      <input id="startStrength" type="range" min="0" max="1" step="0.05" value="0.9" />
-                      <output for="startStrength">0.90</output>
-                    </span>
-                  </label>
-                </article>
+              <article class="reference-card single-reference-card" id="singleImageField">
+                <div class="reference-card-head">
+                  <strong>参考图</strong>
+                  <span>单图条件</span>
+                </div>
+                <div class="reference-preview" data-preview-for="inputImage"><span>REFERENCE</span></div>
+                <label>
+                  图片
+                  <input id="inputImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                </label>
+              </article>
 
-                <article class="reference-card">
-                  <div class="reference-card-head">
-                    <strong>尾帧</strong>
-                    <span>100%</span>
-                  </div>
-                  <div class="reference-preview" data-preview-for="endImage"><span>END</span></div>
-                  <label>
-                    Image
-                    <input id="endImage" type="file" accept="image/png,image/jpeg,image/webp" />
-                  </label>
-                  <label>
-                    Strength
-                    <span class="range-control">
-                      <input id="endStrength" type="range" min="0" max="1" step="0.05" value="0.8" />
-                      <output for="endStrength">0.80</output>
-                    </span>
-                  </label>
-                </article>
+              <div class="multi-reference-field" id="multiReferenceField" hidden>
+                <div class="reference-frame-grid">
+                  <article class="reference-card">
+                    <div class="reference-card-head">
+                      <strong>首帧</strong>
+                      <span>0%</span>
+                    </div>
+                    <div class="reference-preview" data-preview-for="startImage"><span>START</span></div>
+                    <label>
+                      图片
+                      <input id="startImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                    </label>
+                    <label>
+                      强度
+                      <span class="range-control">
+                        <input id="startStrength" type="range" min="0" max="1" step="0.05" value="0.9" />
+                        <output for="startStrength">0.90</output>
+                      </span>
+                    </label>
+                  </article>
+
+                  <article class="reference-card">
+                    <div class="reference-card-head">
+                      <strong>尾帧</strong>
+                      <span>100%</span>
+                    </div>
+                    <div class="reference-preview" data-preview-for="endImage"><span>END</span></div>
+                    <label>
+                      图片
+                      <input id="endImage" type="file" accept="image/png,image/jpeg,image/webp" />
+                    </label>
+                    <label>
+                      强度
+                      <span class="range-control">
+                        <input id="endStrength" type="range" min="0" max="1" step="0.05" value="0.8" />
+                        <output for="endStrength">0.80</output>
+                      </span>
+                    </label>
+                  </article>
+                </div>
+
+                <div class="middle-reference-list" id="middleReferences"></div>
+                <button class="secondary add-reference" id="addMiddleReference" type="button">添加中间帧</button>
               </div>
-
-              <div class="middle-reference-list" id="middleReferences"></div>
-              <button class="secondary add-reference" id="addMiddleReference" type="button">添加中间帧</button>
-            </div>
+            </section>
           </fieldset>
 
           <div class="controls">

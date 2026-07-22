@@ -241,6 +241,12 @@ select:disabled {
   text-transform: uppercase;
 }
 
+.condition-type-heading {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .reference-mode {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -248,7 +254,57 @@ select:disabled {
 }
 
 .reference-mode-button {
-  min-height: 38px;
+  display: grid;
+  min-width: 0;
+  min-height: 58px;
+  align-content: center;
+  gap: 3px;
+  text-align: left;
+}
+
+.reference-mode-button strong,
+.reference-mode-button span {
+  overflow-wrap: anywhere;
+}
+
+.reference-mode-button strong {
+  font-size: 13px;
+}
+
+.reference-mode-button span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.reference-mode-button.active span {
+  color: rgba(249, 255, 249, 0.78);
+}
+
+.condition-upload-panel {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.condition-upload-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.condition-upload-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.condition-upload-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .multi-reference-field {
@@ -259,6 +315,19 @@ select:disabled {
 .multi-reference-field[hidden],
 #singleImageField[hidden] {
   display: none;
+}
+
+.single-reference-card {
+  grid-template-columns: minmax(120px, 0.75fr) minmax(0, 1.25fr);
+  align-items: end;
+}
+
+.single-reference-card .reference-card-head {
+  grid-column: 1 / -1;
+}
+
+.single-reference-card .reference-preview {
+  grid-row: 2;
 }
 
 .reference-frame-grid,
@@ -507,6 +576,14 @@ select:disabled {
   .reference-frame-grid,
   .middle-reference-list {
     grid-template-columns: 1fr;
+  }
+
+  .single-reference-card {
+    grid-template-columns: 1fr;
+  }
+
+  .single-reference-card .reference-preview {
+    grid-row: auto;
   }
 
   .topbar {

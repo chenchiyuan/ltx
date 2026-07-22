@@ -178,6 +178,8 @@ def test_web_frontend_supports_start_end_and_middle_reference_frames() -> None:
     index = read_root("web_frontend/index.html")
 
     for element_id in [
+        "conditionPanelTitle",
+        "referenceSelectionStatus",
         "singleImageField",
         "multiReferenceField",
         "startImage",
@@ -189,6 +191,10 @@ def test_web_frontend_supports_start_end_and_middle_reference_frames() -> None:
 
     assert 'data-reference-mode="single"' in index
     assert 'data-reference-mode="multi"' in index
+    assert "单张参考图" in index
+    assert "首尾帧条件" in index
+    assert 'data-preview-for="inputImage"' in index
+    assert "updateReferenceSelectionStatus" in app
     assert 'payload.image_conditions = imageConditions' in app
     assert "MAX_IMAGE_CONDITIONS = 4" in app
     assert 'position: "start"' in app
