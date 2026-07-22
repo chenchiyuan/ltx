@@ -172,7 +172,7 @@ class LtxMgpuExecutor:
             no_lora_swap=_env_bool("MGPU_NO_LORA_SWAP", True),
             no_audio=_env_bool("MGPU_NO_AUDIO", True),
             vae_overlap=_env_int("MGPU_VAE_OVERLAP", 4),
-            distributed_vae=_env_bool("MGPU_DISTRIBUTED_VAE", False),
+            distributed_vae=_env_bool("MGPU_DISTRIBUTED_VAE", True),
         )
         self._controller = controller
         return controller

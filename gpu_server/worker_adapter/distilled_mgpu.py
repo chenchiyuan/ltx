@@ -53,7 +53,7 @@ class FixedDistilledRunner(MGPURunner):
         no_lora_swap: bool = True,
         no_audio: bool = True,
         vae_overlap: int = 4,
-        distributed_vae: bool = False,
+        distributed_vae: bool = True,
     ) -> None:
         quantization_policy = quantization() if quantization is not None else build_fp8_cast_policy(distilled_checkpoint_path)
         registry = StateDictRegistry()

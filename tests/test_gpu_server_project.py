@@ -134,6 +134,7 @@ def test_compose_defines_stable_fast_workers_and_experimental_mgpu_workers() -> 
     assert 'START_COMFYUI: "false"' in compose
     assert "MGPU_PIPELINE: ${MGPU_PIPELINE:-distilled}" in compose
     assert "MGPU_DISTILLED_CHECKPOINT_PATH: ${MGPU_DISTILLED_CHECKPOINT_PATH:-/fp8/ltx-2-19b-distilled-fp8.safetensors}" in compose
+    assert "MGPU_GEMMA_ROOT: ${MGPU_GEMMA_ROOT:-/opt/ltx/models/gemma-3-12b-local}" in compose
     assert "${MGPU_DISTILLED_CACHE_DIR:-/opt/ltx/models/checkpoints}:/fp8:ro" in compose
     assert "${MGPU_GEMMA_CACHE_DIR:-/opt/ltx/models/gemma-3-12b-local}:/gemma:ro" in compose
     assert "dockerfile: gpu_server/mgpu.Dockerfile" in compose
